@@ -13,7 +13,11 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    # aarch64 is built best-effort; its failure must not block publishing the
+    # other platforms (the x86_64 wheel is what most servers need).
+    continue-on-error: ${{ matrix.target == 'aarch64' }}
     strategy:
+      fail-fast: false
       matrix:
         target: [x86_64, aarch64]
     steps:
