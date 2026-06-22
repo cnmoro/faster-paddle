@@ -78,8 +78,14 @@ preserving the visual layout: vertical whitespace gaps split the page into
 columns/panes (each read fully before the next), and within each one the rows are
 laid out as a monospace grid, so indentation (tree nesting) and aligned
 sub-columns (key/value tables) are kept. Single-glyph UI icon noise is dropped.
-Great for screenshots, forms, table/tree UIs, and code. For dense multi-column
-prose, prefer the `text` field. Example output for a two-pane database UI:
+
+Use **`structured_text`** for screenshots, forms, table/tree UIs, and code —
+anything where spatial structure carries meaning. Use **`text`** for dense
+multi-column prose: there the absolute pixel spacing of `structured_text`
+produces very wide lines, so the column-merging `text` reconstruction reads
+better. Both are always returned, so you can pick per use case.
+
+Example `structured_text` for a two-pane database UI:
 
 ```
 PNS
