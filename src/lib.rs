@@ -9,20 +9,139 @@ mod cv;
 mod layout;
 mod ocr;
 
+// glibc <2.38 compatibility. The prebuilt ONNX Runtime static library is built
+// against glibc 2.38, which redirects strtol/strtoll/strtoull to __isoc23_*
+// variants. That makes the extension fail to load on glibc 2.36/2.37 (e.g.
+// Debian 12 / python:3.11-slim-bookworm) with
+// `undefined symbol: __isoc23_strtoll`. We provide these three symbols ourselves
+// (forwarding to the base C functions), which resolves ONNX Runtime's references
+// at link time and drops the GLIBC_2.38 requirement, so wheels run on glibc 2.28+.
+#[cfg(target_os = "linux")]
+mod glibc_compat {
+    use std::os::raw::{c_char, c_int, c_long, c_longlong, c_ulonglong};
+    extern "C" {
+        fn strtol(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_long;
+        fn strtoll(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_longlong;
+        fn strtoull(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_ulonglong;
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn __isoc23_strtol(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_long {
+        strtol(s, e, b)
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn __isoc23_strtoll(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_longlong {
+        strtoll(s, e, b)
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn __isoc23_strtoull(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_ulonglong {
+        strtoull(s, e, b)
+    }
+}
+
 use base64::Engine as _;
 use ocr::{Engine, ImageBgr};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyTuple};
+use std::borrow::Cow;
 use std::sync::{Mutex, OnceLock};
 
-// ---- embedded assets ----
-const DET_ONNX: &[u8] = include_bytes!("../models/det.onnx");
-const REC_ONNX: &[u8] = include_bytes!("../models/rec.onnx");
-const CHAR_DICT_JSON: &str = include_str!("../models/char_dict.json");
+// ---- embedded models (tiny + small) ----
+// The medium models (~138 MB) exceed PyPI's size limit, so they are downloaded
+// on demand and cached locally (see `medium_model_bytes`).
+const TINY_DET: &[u8] = include_bytes!("../models/tiny/det.onnx");
+const TINY_REC: &[u8] = include_bytes!("../models/tiny/rec.onnx");
+const TINY_DICT: &str = include_str!("../models/tiny/char_dict.json");
+const SMALL_DET: &[u8] = include_bytes!("../models/small/det.onnx");
+const SMALL_REC: &[u8] = include_bytes!("../models/small/rec.onnx");
+// small and medium share the same (larger) character dictionary
+const BIG_DICT: &str = include_str!("../models/small/char_dict.json");
 
-fn load_char_dict() -> Vec<String> {
-    serde_json::from_str(CHAR_DICT_JSON).expect("embedded char_dict.json is valid")
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn parse_dict(json: &str) -> Vec<String> {
+    serde_json::from_str(json).expect("embedded char_dict.json is valid")
+}
+
+/// Resolved model assets for a given size: det bytes, rec bytes, char dict, and
+/// the detection box-score threshold (tiny=0.40, small/medium=0.45).
+struct ModelAssets {
+    det: Cow<'static, [u8]>,
+    rec: Cow<'static, [u8]>,
+    dict: Vec<String>,
+    box_thresh: f32,
+}
+
+fn resolve_model(size: &str) -> PyResult<ModelAssets> {
+    match size {
+        "tiny" => Ok(ModelAssets {
+            det: Cow::Borrowed(TINY_DET),
+            rec: Cow::Borrowed(TINY_REC),
+            dict: parse_dict(TINY_DICT),
+            box_thresh: 0.40,
+        }),
+        "small" => Ok(ModelAssets {
+            det: Cow::Borrowed(SMALL_DET),
+            rec: Cow::Borrowed(SMALL_REC),
+            dict: parse_dict(BIG_DICT),
+            box_thresh: 0.45,
+        }),
+        "medium" => {
+            let (det, rec) = medium_model_bytes()?;
+            Ok(ModelAssets {
+                det: Cow::Owned(det),
+                rec: Cow::Owned(rec),
+                dict: parse_dict(BIG_DICT),
+                box_thresh: 0.45,
+            })
+        }
+        other => Err(PyValueError::new_err(format!(
+            "unknown model_size {other:?}; expected 'tiny', 'small', or 'medium'"
+        ))),
+    }
+}
+
+/// Download (once, then cache) and return the medium det + rec ONNX bytes.
+fn medium_model_bytes() -> PyResult<(Vec<u8>, Vec<u8>)> {
+    let cache = dirs::cache_dir()
+        .ok_or_else(|| PyRuntimeError::new_err("cannot determine a cache directory for medium models"))?
+        .join("faster_paddle")
+        .join(format!("v{VERSION}"))
+        .join("medium");
+    let det = fetch_cached(&cache, "det.onnx", "ppocrv6_medium_det.onnx")?;
+    let rec = fetch_cached(&cache, "rec.onnx", "ppocrv6_medium_rec.onnx")?;
+    Ok((det, rec))
+}
+
+fn fetch_cached(cache_dir: &std::path::Path, filename: &str, asset: &str) -> PyResult<Vec<u8>> {
+    let path = cache_dir.join(filename);
+    if let Ok(bytes) = std::fs::read(&path) {
+        if bytes.len() > 1024 {
+            return Ok(bytes);
+        }
+    }
+    std::fs::create_dir_all(cache_dir)
+        .map_err(|e| PyRuntimeError::new_err(format!("cannot create cache dir: {e}")))?;
+    let url = format!(
+        "https://github.com/cnmoro/faster-paddle/releases/download/v{VERSION}/{asset}"
+    );
+    let resp = ureq::get(&url)
+        .call()
+        .map_err(|e| PyRuntimeError::new_err(format!("failed to download medium model from {url}: {e}")))?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut resp.into_reader(), &mut bytes)
+        .map_err(|e| PyRuntimeError::new_err(format!("failed reading medium model: {e}")))?;
+    if bytes.len() <= 1024 {
+        return Err(PyRuntimeError::new_err(format!(
+            "downloaded medium model from {url} looks invalid ({} bytes)",
+            bytes.len()
+        )));
+    }
+    // atomic-ish write via temp file
+    let tmp = cache_dir.join(format!("{filename}.tmp"));
+    std::fs::write(&tmp, &bytes).map_err(|e| PyRuntimeError::new_err(format!("cannot write cache: {e}")))?;
+    let _ = std::fs::rename(&tmp, &path);
+    Ok(bytes)
 }
 
 /// Number of physical CPU cores (best for compute-bound inference; SMT threads
@@ -70,10 +189,11 @@ fn decode_bgr(bytes: &[u8]) -> Result<ImageBgr, String> {
     Ok(ImageBgr { w, h, data })
 }
 
-fn new_engine(threads: Option<usize>, rec_batch: Option<usize>) -> PyResult<Engine> {
+fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>) -> PyResult<Engine> {
     let t = threads.unwrap_or_else(physical_cores).max(1);
     let rb = rec_batch.unwrap_or(ocr::DEFAULT_REC_BATCH);
-    Engine::from_memory(DET_ONNX, REC_ONNX, load_char_dict(), t, rb)
+    let m = resolve_model(model_size)?;
+    Engine::from_memory(&m.det, &m.rec, m.dict, t, rb, m.box_thresh)
         .map_err(|e| PyRuntimeError::new_err(format!("failed to init OCR engine: {e}")))
 }
 
@@ -124,13 +244,18 @@ impl OcrEngine {
     /// Create an engine.
     ///
     /// Args:
+    ///     model_size: "tiny" (default, bundled), "small" (bundled), or "medium"
+    ///         (downloaded once and cached on first use).
     ///     threads: ONNX Runtime intra-op threads. Defaults to physical cores.
     ///     rec_batch: recognition batch size (default 6).
     #[new]
-    #[pyo3(signature = (threads=None, rec_batch=None))]
-    fn new(threads: Option<usize>, rec_batch: Option<usize>) -> PyResult<Self> {
+    #[pyo3(signature = (model_size="tiny", threads=None, rec_batch=None))]
+    fn new(py: Python<'_>, model_size: &str, threads: Option<usize>, rec_batch: Option<usize>) -> PyResult<Self> {
+        // medium may download large files; release the GIL during construction.
+        let size = model_size.to_string();
+        let engine = py.allow_threads(|| new_engine(&size, threads, rec_batch))?;
         Ok(Self {
-            inner: Mutex::new(new_engine(threads, rec_batch)?),
+            inner: Mutex::new(engine),
         })
     }
 
@@ -163,7 +288,7 @@ fn default_engine() -> PyResult<&'static Mutex<Engine>> {
     if let Some(e) = DEFAULT_ENGINE.get() {
         return Ok(e);
     }
-    let eng = new_engine(None, None)?;
+    let eng = new_engine("tiny", None, None)?;
     Ok(DEFAULT_ENGINE.get_or_init(|| Mutex::new(eng)))
 }
 

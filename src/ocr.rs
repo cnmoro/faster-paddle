@@ -5,9 +5,8 @@ use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
 use ort::value::Tensor;
 
-// ---- detection params (from PP-OCRv6_tiny_det inference.yml) ----
+// ---- detection params (from PP-OCRv6 *_det inference.yml) ----
 const DET_THRESH: f32 = 0.2;
-const DET_BOX_THRESH: f32 = 0.4;
 const DET_UNCLIP_RATIO: f64 = 1.4;
 const DET_MAX_CANDIDATES: usize = 3000;
 const DET_MIN_SIZE: f64 = 3.0;
@@ -32,6 +31,7 @@ pub struct Engine {
     rec: Session,
     chars: Vec<String>,
     rec_batch: usize,
+    box_thresh: f32,
 }
 
 /// BGR u8 image.
@@ -50,6 +50,7 @@ impl Engine {
         char_dict: Vec<String>,
         threads: usize,
         rec_batch: usize,
+        box_thresh: f32,
     ) -> ort::Result<Self> {
         let det = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
@@ -69,6 +70,7 @@ impl Engine {
             rec,
             chars,
             rec_batch: rec_batch.max(1),
+            box_thresh,
         })
     }
 
@@ -101,7 +103,7 @@ impl Engine {
             eprintln!("[dbg] det infer ({}x{}): {:.3}s", rw, rh, t0.elapsed().as_secs_f64());
         }
         let t1 = std::time::Instant::now();
-        let boxes = db_postprocess(&pred, pw, ph, img.w, img.h);
+        let boxes = db_postprocess(&pred, pw, ph, img.w, img.h, self.box_thresh);
         let boxes = sort_boxes(boxes);
         if dbg {
             eprintln!("[dbg] db_postprocess ({} boxes): {:.3}s", boxes.len(), t1.elapsed().as_secs_f64());
@@ -310,7 +312,7 @@ pub fn resize_bilinear_bgr(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usiz
 }
 
 /// DB post-process. Returns quad boxes in source-image coordinates.
-fn db_postprocess(pred: &[f32], pw: usize, ph: usize, src_w: usize, src_h: usize) -> Vec<[cv::Pt; 4]> {
+fn db_postprocess(pred: &[f32], pw: usize, ph: usize, src_w: usize, src_h: usize, box_thresh: f32) -> Vec<[cv::Pt; 4]> {
     // binary map (8-connected flood fill)
     let mut fg = vec![false; pw * ph];
     for i in 0..pw * ph {
@@ -365,7 +367,7 @@ fn db_postprocess(pred: &[f32], pw: usize, ph: usize, src_w: usize, src_h: usize
                 continue;
             }
             let score = cv::box_score_fast(pred, pw, ph, &box1);
-            if DET_BOX_THRESH > score {
+            if box_thresh > score {
                 continue;
             }
             // unclip

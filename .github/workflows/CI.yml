@@ -27,7 +27,10 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist
           sccache: "true"
-          manylinux: "2_28"
+          # The prebuilt ONNX Runtime references glibc 2.34 symbols (e.g.
+          # pthread_create@GLIBC_2.34), so 2_34 is the honest floor. Covers
+          # Debian 12, Ubuntu 22.04+, RHEL/Alma 9+.
+          manylinux: "2_34"
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}
@@ -91,6 +94,26 @@ jobs:
         with:
           name: wheels-sdist
           path: dist
+
+  # The medium models are too large for PyPI, so they ship as GitHub Release
+  # assets and the library downloads them on demand (see fetch_cached in lib.rs).
+  medium-models:
+    name: Upload medium models to release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage assets (names must match the runtime download URL)
+        run: |
+          cp models/medium/det.onnx ppocrv6_medium_det.onnx
+          cp models/medium/rec.onnx ppocrv6_medium_rec.onnx
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ppocrv6_medium_det.onnx
+            ppocrv6_medium_rec.onnx
 
   release:
     name: Publish to PyPI

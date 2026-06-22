@@ -1,12 +1,14 @@
 # faster-paddle
 
 **Fast, CPU-only OCR in Rust with Python bindings** — a self-contained
-reimplementation of PaddleOCR's *lightweight* pipeline (PP-OCRv6 **tiny**
-detection + recognition) powered by [ONNX Runtime](https://onnxruntime.ai/).
+reimplementation of PaddleOCR's PP-OCRv6 detection + recognition pipeline
+powered by [ONNX Runtime](https://onnxruntime.ai/).
 
 - ⚡ **~7× faster** than `paddleocr` on CPU for the same models and output.
-- 📦 **Self-contained** — the ONNX models (~6 MB) are bundled inside the wheel.
-  No `paddlepaddle`, no model downloads, no network at runtime.
+- 📦 **Self-contained** — the tiny + small ONNX models are bundled inside the
+  wheel. No `paddlepaddle`, no model downloads for tiny/small.
+- 🎚️ **Three model sizes**: `tiny` (default, fastest), `small`, and `medium`
+  (higher accuracy; downloaded once on first use and cached).
 - 🦀 Pure-Rust pre/post-processing (detection DB decode, `minAreaRect`,
   perspective crop, CTC decode, reading-order text reconstruction). No OpenCV.
 - 🖥️ Prebuilt wheels for **Linux, Windows, macOS** (x86-64 + arm64).
@@ -44,11 +46,24 @@ Reuse an explicit engine (recommended for servers — load the models once):
 ```python
 from faster_paddle import OcrEngine
 
-engine = OcrEngine(threads=None, rec_batch=6)   # threads default = physical cores
+# model_size: "tiny" (default), "small", or "medium"
+engine = OcrEngine(model_size="tiny", threads=None, rec_batch=6)
 
 result = engine.ocr(image_bytes)                 # raw jpeg/png/webp/bmp/tiff/gif bytes
 result = engine.ocr_base64(b64_string)           # base64-encoded image
 ```
+
+### Model sizes
+
+| size     | bundled | det+rec | notes |
+|----------|---------|---------|-------|
+| `tiny`   | ✅ yes  | ~6 MB   | default, fastest, lightweight |
+| `small`  | ✅ yes  | ~31 MB  | better accuracy |
+| `medium` | ⬇️ on demand | ~138 MB | best accuracy; downloaded once from the GitHub release and cached under your user cache dir |
+
+`tiny` and `small` are embedded in the wheel (offline). `medium` exceeds PyPI's
+file-size limit, so the first `OcrEngine(model_size="medium")` downloads it once
+(needs network that time only) and caches it for subsequent runs.
 
 ### Result shape
 
@@ -108,10 +123,11 @@ Key                                                Value
 |---|---|
 | `faster_paddle.ocr(image: bytes) -> dict` | OCR encoded image bytes (shared default engine). |
 | `faster_paddle.ocr_base64(image_base64: str) -> dict` | OCR a base64 image string. |
-| `OcrEngine(threads=None, rec_batch=None)` | Construct a reusable engine. |
+| `OcrEngine(model_size="tiny", threads=None, rec_batch=None)` | Construct a reusable engine. |
 | `OcrEngine.ocr(image: bytes) -> dict` | OCR encoded image bytes. |
 | `OcrEngine.ocr_base64(image_base64: str) -> dict` | OCR a base64 image string. |
 
+- `model_size`: `"tiny"` (default), `"small"`, or `"medium"`.
 - `threads`: ONNX Runtime intra-op threads. Defaults to the number of **physical**
   CPU cores (SMT/logical threads tend to slow compute-bound inference down).
 - `rec_batch`: recognition batch size (default 6).
