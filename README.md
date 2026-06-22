@@ -55,6 +55,7 @@ result = engine.ocr_base64(b64_string)           # base64-encoded image
 ```python
 {
   "text": "full reconstructed text...",
+  "structured_text": "layout-preserving text (see below)",
   "bounds": {
      0: {
         "topLeftCoord":     (x1, y1),
@@ -67,8 +68,33 @@ result = engine.ocr_base64(b64_string)           # base64-encoded image
 }
 ```
 
-This matches the JSON contract of the original `paddle-ocr-api` service, so it is
-a drop-in replacement.
+`text` and `bounds` match the JSON contract of the original `paddle-ocr-api`
+service, so it is a drop-in replacement.
+
+### `structured_text`
+
+A spatial reconstruction that reads **left-to-right, top-to-bottom** while
+preserving the visual layout: vertical whitespace gaps split the page into
+columns/panes (each read fully before the next), and within each one the rows are
+laid out as a monospace grid, so indentation (tree nesting) and aligned
+sub-columns (key/value tables) are kept. Single-glyph UI icon noise is dropped.
+Great for screenshots, forms, table/tree UIs, and code. For dense multi-column
+prose, prefer the `text` field. Example output for a two-pane database UI:
+
+```
+PNS
+ Collections (11)
+   System
+   CAGED
+   IPCMAPS_MUNICIPIO
+ Functions
+ Users
+
+Key                                                Value
+        OUTRAS_DESPESAS_POTENCIAL_DE_CONSUMO_EM... 7332964
+        TOTAL_DO_CONSUMO_URBANO_E_RURAL            613855113
+        CD_MUNI_IBGE                               1100015
+```
 
 ## API
 

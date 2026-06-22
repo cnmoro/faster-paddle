@@ -78,24 +78,26 @@ fn new_engine(threads: Option<usize>, rec_batch: Option<usize>) -> PyResult<Engi
 }
 
 /// Plain-Rust OCR output (GIL-free), assembled into a Python dict afterwards.
-type RawResult = (String, Vec<(usize, [i32; 2], [i32; 2], String, f32)>);
+type RawResult = (String, String, Vec<(usize, [i32; 2], [i32; 2], String, f32)>);
 
 fn run_ocr(engine: &Mutex<Engine>, bytes: &[u8]) -> Result<RawResult, String> {
     let img = decode_bgr(bytes)?;
     let mut eng = engine.lock().unwrap();
     let res = eng.run(&img).map_err(|e| e.to_string())?;
     let (text, bounds) = layout::extract_text_and_bounds(&res);
+    let structured = layout::structured_text(&res);
     let items = bounds
         .into_iter()
         .map(|(i, b)| (i, b.top_left, b.bottom_right, b.text, b.confidence))
         .collect();
-    Ok((text, items))
+    Ok((text, structured, items))
 }
 
 fn build_dict<'py>(py: Python<'py>, raw: RawResult) -> PyResult<Bound<'py, PyDict>> {
-    let (text, items) = raw;
+    let (text, structured, items) = raw;
     let out = PyDict::new(py);
     out.set_item("text", text)?;
+    out.set_item("structured_text", structured)?;
     let bounds = PyDict::new(py);
     for (i, tl, br, t, conf) in items {
         let entry = PyDict::new(py);

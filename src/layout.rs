@@ -216,3 +216,162 @@ pub fn extract_text_and_bounds(results: &[OcrResult]) -> (String, Vec<(usize, Bo
     let full_text = cleaned.join("\n").trim().to_string();
     (full_text, bounds)
 }
+
+/// Spatial "structured" reconstruction: reads content left-to-right, top-to-bottom
+/// while preserving the visual layout — vertical whitespace gaps split the page
+/// into columns/panes (read left band fully, then the next), and within each band
+/// rows are laid out as a monospace grid so indentation and aligned sub-columns
+/// (e.g. key/value tables, tree nesting) are kept. UI-icon noise (single glyphs)
+/// is dropped.
+pub fn structured_text(results: &[OcrResult]) -> String {
+    struct It {
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+        text: String,
+    }
+    // 1) filter single-char / empty noise (arrows, icons, stray glyphs)
+    let mut items: Vec<It> = Vec::new();
+    for r in results {
+        let s = r.text.trim();
+        if s.chars().count() <= 1 {
+            continue;
+        }
+        items.push(It {
+            x1: r.box4[0] as f64,
+            y1: r.box4[1] as f64,
+            x2: r.box4[2] as f64,
+            y2: r.box4[3] as f64,
+            text: s.to_string(),
+        });
+    }
+    if items.is_empty() {
+        return String::new();
+    }
+
+    // character-width and line-height estimates
+    let mut cws: Vec<f64> = items
+        .iter()
+        .filter(|it| it.x2 > it.x1 && it.text.chars().count() > 0)
+        .map(|it| (it.x2 - it.x1) / it.text.chars().count() as f64)
+        .collect();
+    let cw = if cws.is_empty() { 8.0 } else { median(&mut cws) }.max(4.0);
+    let mut hs: Vec<f64> = items.iter().filter(|it| it.y2 > it.y1).map(|it| it.y2 - it.y1).collect();
+    let mh = if hs.is_empty() { 12.0 } else { median(&mut hs) };
+
+    // 2) vertical cut into bands via whitespace gaps in the x-projection
+    let mut intervals: Vec<(f64, f64)> = items.iter().map(|it| (it.x1, it.x2)).collect();
+    intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let mut merged: Vec<(f64, f64)> = Vec::new();
+    for (a, b) in intervals {
+        if let Some(last) = merged.last_mut() {
+            if a <= last.1 {
+                last.1 = last.1.max(b);
+                continue;
+            }
+        }
+        merged.push((a, b));
+    }
+    let gap_thresh = (4.0 * cw).max(40.0);
+    let mut bands_x: Vec<(f64, f64)> = Vec::new();
+    let mut cur_lo = merged[0].0;
+    let mut cur_hi = merged[0].1;
+    for w in merged.windows(2) {
+        let (prev, nxt) = (w[0], w[1]);
+        if nxt.0 - prev.1 > gap_thresh {
+            bands_x.push((cur_lo, cur_hi));
+            cur_lo = nxt.0;
+            cur_hi = nxt.1;
+        } else {
+            cur_hi = cur_hi.max(nxt.1);
+        }
+    }
+    bands_x.push((cur_lo, cur_hi));
+
+    let mut blocks: Vec<String> = Vec::new();
+    for band in &bands_x {
+        let mut bitems: Vec<&It> = items
+            .iter()
+            .filter(|it| {
+                let cx = (it.x1 + it.x2) / 2.0;
+                cx >= band.0 - 1.0 && cx <= band.1 + 1.0
+            })
+            .collect();
+        if bitems.is_empty() {
+            continue;
+        }
+        let region_left = bitems.iter().map(|it| it.x1).fold(f64::INFINITY, f64::min);
+        // sort by y-center then x
+        bitems.sort_by(|a, b| {
+            let ca = (a.y1 + a.y2) / 2.0;
+            let cb = (b.y1 + b.y2) / 2.0;
+            ca.partial_cmp(&cb).unwrap().then(a.x1.partial_cmp(&b.x1).unwrap())
+        });
+        // cluster into rows
+        let mut rows: Vec<Vec<&It>> = Vec::new();
+        let mut cur_row: Vec<&It> = Vec::new();
+        let mut cur_yc = f64::NAN;
+        for it in bitems {
+            let yc = (it.y1 + it.y2) / 2.0;
+            if cur_yc.is_nan() || (yc - cur_yc).abs() <= mh * 0.7 {
+                cur_yc = if cur_yc.is_nan() { yc } else { cur_yc * 0.5 + yc * 0.5 };
+                cur_row.push(it);
+            } else {
+                rows.push(std::mem::take(&mut cur_row));
+                cur_row.push(it);
+                cur_yc = yc;
+            }
+        }
+        if !cur_row.is_empty() {
+            rows.push(cur_row);
+        }
+        // build monospace lines
+        let mut lines: Vec<String> = Vec::new();
+        let mut prev_bottom: Option<f64> = None;
+        for mut row in rows {
+            row.sort_by(|a, b| a.x1.partial_cmp(&b.x1).unwrap());
+            let top = row.iter().map(|it| it.y1).fold(f64::INFINITY, f64::min);
+            let bottom = row.iter().map(|it| it.y2).fold(f64::NEG_INFINITY, f64::max);
+            if let Some(pb) = prev_bottom {
+                if top - pb > mh * 1.2 {
+                    lines.push(String::new());
+                }
+            }
+            let mut line = String::new();
+            let mut cur_len: usize = 0;
+            for it in &row {
+                let col = (((it.x1 - region_left) / cw).round() as i64).max(0) as usize;
+                if col < cur_len + 1 {
+                    line.push(' ');
+                    cur_len += 1;
+                } else {
+                    for _ in 0..(col - cur_len) {
+                        line.push(' ');
+                    }
+                    cur_len = col;
+                }
+                line.push_str(&it.text);
+                cur_len += it.text.chars().count();
+            }
+            lines.push(line.trim_end().to_string());
+            prev_bottom = Some(bottom);
+        }
+        // normalize: strip the common leading indent so the band starts at column 0
+        let min_indent = lines
+            .iter()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.chars().take_while(|c| *c == ' ').count())
+            .min()
+            .unwrap_or(0);
+        if min_indent > 0 {
+            for l in lines.iter_mut() {
+                if !l.trim().is_empty() {
+                    *l = l.chars().skip(min_indent).collect();
+                }
+            }
+        }
+        blocks.push(lines.join("\n"));
+    }
+    blocks.join("\n\n")
+}
