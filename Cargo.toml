@@ -1,6 +1,6 @@
 [package]
 name = "faster_paddle"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 license = "MIT"
 description = "Fast CPU OCR (PaddleOCR PP-OCRv6 tiny/small/medium) with Python bindings, powered by ONNX Runtime."
@@ -29,6 +29,7 @@ ort = { version = "2.0.0-rc.10", default-features = false, features = [
 ] }
 ndarray = "0.16"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "webp", "tiff", "gif"] }
+imageproc = { version = "0.25", default-features = false }
 rayon = "1"
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }

@@ -53,6 +53,27 @@ result = engine.ocr(image_bytes)                 # raw jpeg/png/webp/bmp/tiff/gi
 result = engine.ocr_base64(b64_string)           # base64-encoded image
 ```
 
+### Optional preprocessing
+
+`ocr` / `ocr_base64` take four optional flags (all default `False`), applied —
+when enabled — in the optimal order, all in fast parallel Rust:
+
+```python
+result = engine.ocr(
+    image_bytes,
+    resize=True,     # 1. downscale to ≤ 2100×3000 (aspect preserved) if larger
+    denoise=True,    # 2. fast Non-Local-Means denoise (grayscale)
+    deskew=True,     # 3. detect skew (Canny + Hough) and rotate to straighten
+    binarize=True,   # 4. Sauvola adaptive thresholding (clean black/white)
+)
+```
+
+Order rationale: resize first (everything downstream is then faster), denoise
+before angle detection and thresholding, deskew on the cleaned image, binarize
+last to produce the final B/W. Enabling `resize` typically makes OCR *faster*
+overall (less detector work). Any of `denoise`/`deskew`/`binarize` converts the
+image to grayscale.
+
 ### Model sizes
 
 | size     | bundled | det+rec | notes |
@@ -121,12 +142,13 @@ Key                                                Value
 
 | | |
 |---|---|
-| `faster_paddle.ocr(image: bytes) -> dict` | OCR encoded image bytes (shared default engine). |
-| `faster_paddle.ocr_base64(image_base64: str) -> dict` | OCR a base64 image string. |
+| `faster_paddle.ocr(image, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR encoded image bytes (shared default engine). |
+| `faster_paddle.ocr_base64(image_base64, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR a base64 image string. |
 | `OcrEngine(model_size="tiny", threads=None, rec_batch=None)` | Construct a reusable engine. |
-| `OcrEngine.ocr(image: bytes) -> dict` | OCR encoded image bytes. |
-| `OcrEngine.ocr_base64(image_base64: str) -> dict` | OCR a base64 image string. |
+| `OcrEngine.ocr(image, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR encoded image bytes. |
+| `OcrEngine.ocr_base64(image_base64, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR a base64 image string. |
 
+- `resize`/`denoise`/`deskew`/`binarize`: optional preprocessing (see above).
 - `model_size`: `"tiny"` (default), `"small"`, or `"medium"`.
 - `threads`: ONNX Runtime intra-op threads. Defaults to the number of **physical**
   CPU cores (SMT/logical threads tend to slow compute-bound inference down).

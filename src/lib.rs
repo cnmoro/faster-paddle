@@ -8,6 +8,7 @@
 mod cv;
 mod layout;
 mod ocr;
+mod preprocess;
 
 // glibc <2.38 compatibility. The prebuilt ONNX Runtime static library is built
 // against glibc 2.38, which redirects strtol/strtoll/strtoull to __isoc23_*
@@ -200,8 +201,11 @@ fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>
 /// Plain-Rust OCR output (GIL-free), assembled into a Python dict afterwards.
 type RawResult = (String, String, Vec<(usize, [i32; 2], [i32; 2], String, f32)>);
 
-fn run_ocr(engine: &Mutex<Engine>, bytes: &[u8]) -> Result<RawResult, String> {
-    let img = decode_bgr(bytes)?;
+fn run_ocr(engine: &Mutex<Engine>, bytes: &[u8], opts: preprocess::PreOpts) -> Result<RawResult, String> {
+    let mut img = decode_bgr(bytes)?;
+    if opts.any() {
+        img = preprocess::preprocess(img, &opts);
+    }
     let mut eng = engine.lock().unwrap();
     let res = eng.run(&img).map_err(|e| e.to_string())?;
     let (text, bounds) = layout::extract_text_and_bounds(&res);
@@ -260,22 +264,45 @@ impl OcrEngine {
     }
 
     /// Run OCR on raw encoded image bytes (jpeg/png/webp/bmp/tiff/gif).
-    /// Returns ``{"text": str, "bounds": {idx: {...}}}``.
-    fn ocr<'py>(&self, py: Python<'py>, image: &[u8]) -> PyResult<Bound<'py, PyDict>> {
+    ///
+    /// Optional preprocessing (applied in this order): ``resize`` (down to
+    /// ≤2100×3000), ``denoise`` (fast NLM), ``deskew``, ``binarize`` (Sauvola).
+    /// Returns ``{"text": str, "structured_text": str, "bounds": {idx: {...}}}``.
+    #[pyo3(signature = (image, resize=false, denoise=false, deskew=false, binarize=false))]
+    fn ocr<'py>(
+        &self,
+        py: Python<'py>,
+        image: &[u8],
+        resize: bool,
+        denoise: bool,
+        deskew: bool,
+        binarize: bool,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
         let raw = py
-            .allow_threads(|| run_ocr(&self.inner, image))
+            .allow_threads(|| run_ocr(&self.inner, image, opts))
             .map_err(PyRuntimeError::new_err)?;
         build_dict(py, raw)
     }
 
     /// Run OCR on a base64-encoded image string (same payload as the original
-    /// paddle-ocr-api ``image_base64`` field).
-    fn ocr_base64<'py>(&self, py: Python<'py>, image_base64: &str) -> PyResult<Bound<'py, PyDict>> {
+    /// paddle-ocr-api ``image_base64`` field). See ``ocr`` for the options.
+    #[pyo3(signature = (image_base64, resize=false, denoise=false, deskew=false, binarize=false))]
+    fn ocr_base64<'py>(
+        &self,
+        py: Python<'py>,
+        image_base64: &str,
+        resize: bool,
+        denoise: bool,
+        deskew: bool,
+        binarize: bool,
+    ) -> PyResult<Bound<'py, PyDict>> {
         let bytes = base64::engine::general_purpose::STANDARD
             .decode(image_base64.as_bytes())
             .map_err(|e| PyValueError::new_err(format!("invalid base64: {e}")))?;
+        let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
         let raw = py
-            .allow_threads(|| run_ocr(&self.inner, &bytes))
+            .allow_threads(|| run_ocr(&self.inner, &bytes, opts))
             .map_err(PyRuntimeError::new_err)?;
         build_dict(py, raw)
     }
@@ -294,22 +321,38 @@ fn default_engine() -> PyResult<&'static Mutex<Engine>> {
 
 /// OCR raw encoded image bytes using a shared default engine.
 #[pyfunction]
-#[pyo3(name = "ocr")]
-fn py_ocr<'py>(py: Python<'py>, image: &[u8]) -> PyResult<Bound<'py, PyDict>> {
+#[pyo3(name = "ocr", signature = (image, resize=false, denoise=false, deskew=false, binarize=false))]
+fn py_ocr<'py>(
+    py: Python<'py>,
+    image: &[u8],
+    resize: bool,
+    denoise: bool,
+    deskew: bool,
+    binarize: bool,
+) -> PyResult<Bound<'py, PyDict>> {
+    let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
     let engine = default_engine()?;
-    let raw = py.allow_threads(|| run_ocr(engine, image)).map_err(PyRuntimeError::new_err)?;
+    let raw = py.allow_threads(|| run_ocr(engine, image, opts)).map_err(PyRuntimeError::new_err)?;
     build_dict(py, raw)
 }
 
 /// OCR a base64-encoded image using a shared default engine.
 #[pyfunction]
-#[pyo3(name = "ocr_base64")]
-fn py_ocr_base64<'py>(py: Python<'py>, image_base64: &str) -> PyResult<Bound<'py, PyDict>> {
+#[pyo3(name = "ocr_base64", signature = (image_base64, resize=false, denoise=false, deskew=false, binarize=false))]
+fn py_ocr_base64<'py>(
+    py: Python<'py>,
+    image_base64: &str,
+    resize: bool,
+    denoise: bool,
+    deskew: bool,
+    binarize: bool,
+) -> PyResult<Bound<'py, PyDict>> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(image_base64.as_bytes())
         .map_err(|e| PyValueError::new_err(format!("invalid base64: {e}")))?;
+    let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
     let engine = default_engine()?;
-    let raw = py.allow_threads(|| run_ocr(engine, &bytes)).map_err(PyRuntimeError::new_err)?;
+    let raw = py.allow_threads(|| run_ocr(engine, &bytes, opts)).map_err(PyRuntimeError::new_err)?;
     build_dict(py, raw)
 }
 
