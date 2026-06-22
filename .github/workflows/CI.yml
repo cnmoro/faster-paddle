@@ -99,7 +99,6 @@ jobs:
     needs: [linux, windows, macos, sdist]
     permissions:
       contents: read
-    environment: pypi
     steps:
       - uses: actions/download-artifact@v4
         with:
