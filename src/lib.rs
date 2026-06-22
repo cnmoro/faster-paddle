@@ -202,17 +202,26 @@ fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>
 type RawResult = (String, String, Vec<(usize, [i32; 2], [i32; 2], String, f32)>);
 
 fn run_ocr(engine: &Mutex<Engine>, bytes: &[u8], opts: preprocess::PreOpts) -> Result<RawResult, String> {
-    let mut img = decode_bgr(bytes)?;
-    if opts.any() {
-        img = preprocess::preprocess(img, &opts);
-    }
+    let img = decode_bgr(bytes)?;
+    // Preprocessing may resize/rotate the image; `transform` maps detected boxes
+    // back to the ORIGINAL image coordinates so returned bounds stay aligned.
+    let (img, transform) = if opts.any() {
+        preprocess::preprocess(img, &opts)
+    } else {
+        (img, preprocess::Transform::identity())
+    };
     let mut eng = engine.lock().unwrap();
     let res = eng.run(&img).map_err(|e| e.to_string())?;
+    // Text/layout run in the (straightened, scaled) preprocessed space.
     let (text, bounds) = layout::extract_text_and_bounds(&res);
     let structured = layout::structured_text(&res);
+    // Bounds are mapped back to original-image coordinates for the caller.
     let items = bounds
         .into_iter()
-        .map(|(i, b)| (i, b.top_left, b.bottom_right, b.text, b.confidence))
+        .map(|(i, b)| {
+            let mapped = transform.map_box([b.top_left[0], b.top_left[1], b.bottom_right[0], b.bottom_right[1]]);
+            (i, [mapped[0], mapped[1]], [mapped[2], mapped[3]], b.text, b.confidence)
+        })
         .collect();
     Ok((text, structured, items))
 }

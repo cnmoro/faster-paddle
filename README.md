@@ -74,6 +74,10 @@ last to produce the final B/W. Enabling `resize` typically makes OCR *faster*
 overall (less detector work). Any of `denoise`/`deskew`/`binarize` converts the
 image to grayscale.
 
+Returned `bounds` are always in the **original image's coordinate space** — even
+when `resize` or `deskew` changes the working image, the boxes are mapped back so
+they line up with your input.
+
 ### Model sizes
 
 | size     | bundled | det+rec | notes |

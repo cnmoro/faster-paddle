@@ -31,16 +31,86 @@ impl PreOpts {
     }
 }
 
+/// Maps a point/box from preprocessed-image coordinates back to the original
+/// input image coordinates (so returned bounds line up with the user's image).
+#[derive(Clone, Copy)]
+pub struct Transform {
+    sx: f64, // resized -> original scale (origW / resizedW)
+    sy: f64,
+    deskew: Option<DeskewInv>,
+}
+
+#[derive(Clone, Copy)]
+struct DeskewInv {
+    angle_applied_deg: f32, // angle passed to rotate_gray (= -detected skew)
+    rw: f32,                // dims before rotation (resized)
+    rh: f32,
+    dw: f32, // dims after rotation (deskewed canvas)
+    dh: f32,
+}
+
+impl Transform {
+    pub fn identity() -> Self {
+        Transform { sx: 1.0, sy: 1.0, deskew: None }
+    }
+
+    fn map_point(&self, x: f64, y: f64) -> (f64, f64) {
+        let (mut px, mut py) = (x, y);
+        // 1) undo deskew rotation (deskewed -> resized)
+        if let Some(d) = &self.deskew {
+            let theta = (d.angle_applied_deg as f64).to_radians();
+            let (s, c) = theta.sin_cos();
+            let dx = px - d.dw as f64 / 2.0;
+            let dy = py - d.dh as f64 / 2.0;
+            px = c * dx + s * dy + d.rw as f64 / 2.0;
+            py = -s * dx + c * dy + d.rh as f64 / 2.0;
+        }
+        // 2) undo resize (resized -> original)
+        (px * self.sx, py * self.sy)
+    }
+
+    /// Map an axis-aligned [left, top, right, bottom] box back to the original
+    /// image (bounding box of the mapped corners).
+    pub fn map_box(&self, b: [i32; 4]) -> [i32; 4] {
+        if self.deskew.is_none() && self.sx == 1.0 && self.sy == 1.0 {
+            return b;
+        }
+        let corners = [
+            (b[0] as f64, b[1] as f64),
+            (b[2] as f64, b[1] as f64),
+            (b[2] as f64, b[3] as f64),
+            (b[0] as f64, b[3] as f64),
+        ];
+        let (mut minx, mut miny) = (f64::INFINITY, f64::INFINITY);
+        let (mut maxx, mut maxy) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for (x, y) in corners {
+            let (mx, my) = self.map_point(x, y);
+            minx = minx.min(mx);
+            miny = miny.min(my);
+            maxx = maxx.max(mx);
+            maxy = maxy.max(my);
+        }
+        [minx.round() as i32, miny.round() as i32, maxx.round() as i32, maxy.round() as i32]
+    }
+}
+
 /// Apply the enabled preprocessing steps to a BGR image, in optimal order.
-pub fn preprocess(img: ImageBgr, o: &PreOpts) -> ImageBgr {
+/// Returns the processed image and a transform mapping its coordinates back to
+/// the original image (so bounds stay aligned with the user's input).
+pub fn preprocess(img: ImageBgr, o: &PreOpts) -> (ImageBgr, Transform) {
+    let (orig_w, orig_h) = (img.w, img.h);
     let mut img = img;
 
     // 1) resize (still BGR / color)
     if o.resize {
         img = resize_if_large(img, MAX_W, MAX_H);
     }
+    let sx = orig_w as f64 / img.w as f64;
+    let sy = orig_h as f64 / img.h as f64;
+    let mut transform = Transform { sx, sy, deskew: None };
+
     if !o.any_gray() {
-        return img;
+        return (img, transform);
     }
 
     // 2..4 operate on grayscale
@@ -56,7 +126,15 @@ pub fn preprocess(img: ImageBgr, o: &PreOpts) -> ImageBgr {
         if let Some(angle) = skew_angle(&gray, gw, gh) {
             if angle.abs() > 0.1 {
                 // rotate by the negative of the detected skew to undo it
-                let (rg, rw, rh) = rotate_gray(gray, gw, gh, -angle);
+                let applied = -angle;
+                let (rg, rw, rh) = rotate_gray(gray, gw, gh, applied);
+                transform.deskew = Some(DeskewInv {
+                    angle_applied_deg: applied,
+                    rw: gw as f32,
+                    rh: gh as f32,
+                    dw: rw as f32,
+                    dh: rh as f32,
+                });
                 gray = rg;
                 gw = rw;
                 gh = rh;
@@ -67,11 +145,14 @@ pub fn preprocess(img: ImageBgr, o: &PreOpts) -> ImageBgr {
         gray = sauvola(&gray, gw, gh);
     }
 
-    ImageBgr {
-        w: gw,
-        h: gh,
-        data: gray_to_bgr(&gray),
-    }
+    (
+        ImageBgr {
+            w: gw,
+            h: gh,
+            data: gray_to_bgr(&gray),
+        },
+        transform,
+    )
 }
 
 fn resize_if_large(img: ImageBgr, max_w: usize, max_h: usize) -> ImageBgr {

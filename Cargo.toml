@@ -1,6 +1,6 @@
 [package]
 name = "faster_paddle"
-version = "0.0.4"
+version = "0.0.5"
 edition = "2021"
 license = "MIT"
 description = "Fast CPU OCR (PaddleOCR PP-OCRv6 tiny/small/medium) with Python bindings, powered by ONNX Runtime."
