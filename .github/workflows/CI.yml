@@ -19,7 +19,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64, aarch64]
+        # Per-target manylinux: x86_64 honestly needs glibc 2.34 (ONNX Runtime's
+        # pthread@GLIBC_2.34). The maturin-action manylinux_2_34 aarch64
+        # cross-image fails to build, so aarch64 uses the 2_28 cross-image that
+        # worked previously (the __isoc23 shim keeps it loadable on glibc < 2.38).
+        include:
+          - target: x86_64
+            manylinux: "2_34"
+          - target: aarch64
+            manylinux: "2_28"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,10 +39,7 @@ jobs:
           target: ${{ matrix.target }}
           args: --release --out dist
           sccache: "true"
-          # The prebuilt ONNX Runtime references glibc 2.34 symbols (e.g.
-          # pthread_create@GLIBC_2.34), so 2_34 is the honest floor. Covers
-          # Debian 12, Ubuntu 22.04+, RHEL/Alma 9+.
-          manylinux: "2_34"
+          manylinux: ${{ matrix.manylinux }}
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}
