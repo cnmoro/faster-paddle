@@ -1,0 +1,33 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "faster-paddle"
+version = "0.0.1"
+description = "Fast CPU OCR — PaddleOCR PP-OCRv6 tiny (lightweight), reimplemented in Rust + ONNX Runtime. ~7x faster than PaddlePaddle, self-contained wheels with models bundled."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "cnmoro", email = "cnmoro@gmail.com" }]
+keywords = ["ocr", "paddleocr", "ppocr", "onnx", "onnxruntime", "rust", "cpu", "text-recognition"]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+    "Intended Audience :: Developers",
+]
+
+[project.urls]
+Homepage = "https://github.com/cnmoro/faster-paddle"
+Repository = "https://github.com/cnmoro/faster-paddle"
+
+[tool.maturin]
+module-name = "faster_paddle"
+features = ["pyo3/extension-module"]
+strip = true
+include = ["models/det.onnx", "models/rec.onnx", "models/char_dict.json"]

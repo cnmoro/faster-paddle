@@ -1,0 +1,38 @@
+[package]
+name = "faster_paddle"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "Fast CPU OCR (PaddleOCR PP-OCRv6 tiny) with Python bindings, powered by ONNX Runtime."
+repository = "https://github.com/cnmoro/faster-paddle"
+include = ["src/**/*", "models/**/*", "README.md", "pyproject.toml", "LICENSE"]
+
+[lib]
+name = "faster_paddle"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py38"] }
+# default features minus `tls-native` (which pulls openssl-sys and breaks
+# dependency-free cross-platform wheel builds); use rustls for the model
+# downloader instead.
+ort = { version = "2.0.0-rc.10", default-features = false, features = [
+    "std",
+    "ndarray",
+    "tracing",
+    "download-binaries",
+    "tls-rustls",
+    "copy-dylibs",
+    "api-24",
+] }
+ndarray = "0.16"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "webp", "tiff", "gif"] }
+rayon = "1"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

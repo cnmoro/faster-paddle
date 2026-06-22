@@ -1,0 +1,9 @@
+/target
+/dist
+/dist_*
+/publish
+*.so
+*.pyd
+__pycache__/
+*.egg-info/
+.venv/
