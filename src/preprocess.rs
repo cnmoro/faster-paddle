@@ -113,6 +113,7 @@ pub fn preprocess(img: ImageBgr, o: &PreOpts) -> (ImageBgr, Transform) {
         return (img, transform);
     }
 
+    let dbg = std::env::var("OCR_DEBUG").is_ok();
     // 2..4 operate on grayscale
     let (w, h) = (img.w, img.h);
     let mut gray = bgr_to_gray(&img.data, w, h);
@@ -120,9 +121,14 @@ pub fn preprocess(img: ImageBgr, o: &PreOpts) -> (ImageBgr, Transform) {
     let mut gh = h;
 
     if o.denoise {
+        let t = std::time::Instant::now();
         gray = nlm_denoise(&gray, gw, gh);
+        if dbg {
+            eprintln!("[dbg] denoise ({}x{}): {:.3}s", gw, gh, t.elapsed().as_secs_f64());
+        }
     }
     if o.deskew {
+        let t = std::time::Instant::now();
         if let Some(angle) = skew_angle(&gray, gw, gh) {
             if angle.abs() > 0.1 {
                 // rotate by the negative of the detected skew to undo it
@@ -140,9 +146,16 @@ pub fn preprocess(img: ImageBgr, o: &PreOpts) -> (ImageBgr, Transform) {
                 gh = rh;
             }
         }
+        if dbg {
+            eprintln!("[dbg] deskew: {:.3}s", t.elapsed().as_secs_f64());
+        }
     }
     if o.binarize {
+        let t = std::time::Instant::now();
         gray = sauvola(&gray, gw, gh);
+        if dbg {
+            eprintln!("[dbg] binarize ({}x{}): {:.3}s", gw, gh, t.elapsed().as_secs_f64());
+        }
     }
 
     (
@@ -187,167 +200,205 @@ fn gray_to_bgr(gray: &[u8]) -> Vec<u8> {
     out
 }
 
-// ---------------- Sauvola binarization (integral images) ----------------
+// ---------------- Sauvola binarization ----------------
+// Cache-resident strips + separable running-sum box for the windowed mean and
+// mean-of-squares (no global integral image / sequential build). General win.
 
 fn sauvola(gray: &[u8], w: usize, h: usize) -> Vec<u8> {
     const K: f64 = 0.2;
     const R: f64 = 128.0;
-    let radius: i64 = 12; // ~25px window
-
-    // integral images of value and value^2 (size (h+1)*(w+1))
-    let iw = w + 1;
-    let mut sum = vec![0f64; iw * (h + 1)];
-    let mut sq = vec![0f64; iw * (h + 1)];
-    for y in 0..h {
-        let mut row_s = 0f64;
-        let mut row_q = 0f64;
-        for x in 0..w {
-            let v = gray[y * w + x] as f64;
-            row_s += v;
-            row_q += v * v;
-            sum[(y + 1) * iw + (x + 1)] = sum[y * iw + (x + 1)] + row_s;
-            sq[(y + 1) * iw + (x + 1)] = sq[y * iw + (x + 1)] + row_q;
-        }
+    const RAD: usize = 12; // ~25px window
+    if w == 0 || h == 0 {
+        return gray.to_vec();
     }
-    let box_sum = |arr: &[f64], x0: i64, y0: i64, x1: i64, y1: i64| -> f64 {
-        let x0 = x0.clamp(0, w as i64) as usize;
-        let y0 = y0.clamp(0, h as i64) as usize;
-        let x1 = (x1 + 1).clamp(0, w as i64) as usize;
-        let y1 = (y1 + 1).clamp(0, h as i64) as usize;
-        arr[y1 * iw + x1] - arr[y0 * iw + x1] - arr[y1 * iw + x0] + arr[y0 * iw + x0]
-    };
 
+    // valid (clamped) window sizes per axis
+    let count_h: Vec<f64> = (0..w)
+        .map(|x| ((x + RAD).min(w - 1) - x.saturating_sub(RAD) + 1) as f64)
+        .collect();
+    let count_v: Vec<f64> = (0..h)
+        .map(|y| ((y + RAD).min(h - 1) - y.saturating_sub(RAD) + 1) as f64)
+        .collect();
+
+    // Cache-resident strips, separable running-sum box (mean + mean-of-squares),
+    // parallel over strips — no global integral image, no sequential build.
+    let strip_h = 128usize;
     let mut out = vec![0u8; w * h];
-    out.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
-        let yi = y as i64;
-        let y0 = yi - radius;
-        let y1 = yi + radius;
-        let yc0 = y0.clamp(0, h as i64 - 1);
-        let yc1 = y1.clamp(0, h as i64 - 1);
-        for x in 0..w {
-            let xi = x as i64;
-            let x0 = (xi - radius).clamp(0, w as i64 - 1);
-            let x1 = (xi + radius).clamp(0, w as i64 - 1);
-            let area = ((x1 - x0 + 1) * (yc1 - yc0 + 1)) as f64;
-            let s = box_sum(&sum, x0, yc0, x1, yc1);
-            let q = box_sum(&sq, x0, yc0, x1, yc1);
-            let mean = s / area;
-            let var = (q / area - mean * mean).max(0.0);
-            let std = var.sqrt();
-            let thresh = mean * (1.0 + K * (std / R - 1.0));
-            row[x] = if (gray[y * w + x] as f64) > thresh { 255 } else { 0 };
+    out.par_chunks_mut(strip_h * w).enumerate().for_each(|(si, ostrip)| {
+        let y0 = si * strip_h;
+        let rows = ostrip.len() / w;
+        let y1 = y0 + rows;
+        let band_y0 = y0.saturating_sub(RAD);
+        let band_y1 = (y1 + RAD).min(h);
+        let band_rows = band_y1 - band_y0;
+        // horizontal box sums of value and value^2 for the band
+        let mut hs = vec![0f64; band_rows * w];
+        let mut hq = vec![0f64; band_rows * w];
+        for br in 0..band_rows {
+            let g = &gray[(band_y0 + br) * w..(band_y0 + br + 1) * w];
+            let (hsr, hqr) = (&mut hs[br * w..br * w + w], &mut hq[br * w..br * w + w]);
+            let mut s = 0f64;
+            let mut q = 0f64;
+            for k in 0..=RAD.min(w - 1) {
+                let v = g[k] as f64;
+                s += v;
+                q += v * v;
+            }
+            hsr[0] = s;
+            hqr[0] = q;
+            for x in 1..w {
+                if x + RAD < w {
+                    let v = g[x + RAD] as f64;
+                    s += v;
+                    q += v * v;
+                }
+                if x > RAD {
+                    let v = g[x - RAD - 1] as f64;
+                    s -= v;
+                    q -= v * v;
+                }
+                hsr[x] = s;
+                hqr[x] = q;
+            }
+        }
+        // vertical sum over the cached band + Sauvola threshold
+        for oy in 0..rows {
+            let y = y0 + oy;
+            let v_lo = y.saturating_sub(RAD);
+            let v_hi = (y + RAD).min(h - 1);
+            let cv = count_v[y];
+            let orow = &mut ostrip[oy * w..oy * w + w];
+            let grow = &gray[y * w..y * w + w];
+            for x in 0..w {
+                let mut s = 0f64;
+                let mut q = 0f64;
+                for r in v_lo..=v_hi {
+                    let idx = (r - band_y0) * w + x;
+                    s += hs[idx];
+                    q += hq[idx];
+                }
+                let area = count_h[x] * cv;
+                let mean = s / area;
+                let var = (q / area - mean * mean).max(0.0);
+                let std = var.sqrt();
+                let thresh = mean * (1.0 + K * (std / R - 1.0));
+                orow[x] = if (grow[x] as f64) > thresh { 255 } else { 0 };
+            }
         }
     });
     out
 }
 
 // ---------------- Fast Non-Local Means denoising ----------------
-// Integral-image patch distances + a precomputed weight LUT (no per-pixel exp).
+// Separable box patch-distances + a precomputed weight LUT (no per-pixel exp).
+// Processed in cache-resident horizontal strips with the search-offset loop
+// *inside* each strip: the strip's pixels stay hot in cache across all offsets
+// instead of streaming the whole image from RAM 49 times. This is a general
+// cache-blocking win (benefits any CPU with a cache hierarchy) and is also
+// embarrassingly parallel across strips.
+
+const NLM_TR: usize = 2; // template radius (5x5)
+const NLM_SR: i64 = 3; // search radius (7x7)
+const NLM_H: f64 = 12.0; // filter strength
+const NLM_LUT_N: usize = 4096;
+const NLM_MAX_NORM: f64 = 65025.0; // 255^2
 
 fn nlm_denoise(src: &[u8], w: usize, h: usize) -> Vec<u8> {
     let n = w * h;
-    if n == 0 {
+    if n == 0 || w < 1 || h < 1 {
         return src.to_vec();
     }
-    let tr: i64 = 2; // template radius (5x5)
-    let sr: i64 = 3; // search radius (7x7) — plenty for OCR, keeps it fast
-    let hh: f64 = 12.0; // filter strength
-    let h2 = hh * hh;
-
-    // weight LUT over normalized mean-squared patch distance
-    const LUT_N: usize = 4096;
-    const MAX_NORM: f64 = 65025.0; // 255^2
-    let lut: Vec<f32> = (0..LUT_N)
-        .map(|i| {
-            let d = i as f64 * MAX_NORM / LUT_N as f64;
-            (-d / h2).exp() as f32
-        })
+    let tr = NLM_TR;
+    let sr = NLM_SR;
+    let h2 = NLM_H * NLM_H;
+    let lut: Vec<f32> = (0..NLM_LUT_N)
+        .map(|i| (-(i as f64 * NLM_MAX_NORM / NLM_LUT_N as f64) / h2).exp() as f32)
         .collect();
+    let lut_scale = NLM_LUT_N as f32 / NLM_MAX_NORM as f32;
 
     let srcf: Vec<f32> = src.iter().map(|&v| v as f32).collect();
-    let mut accum = vec![0f32; n];
-    let mut wsum = vec![0f32; n];
-
-    let tru = tr as usize;
-    // per-axis valid window sizes (template box, clamped at borders)
+    // per-axis valid template window sizes (clamped at borders)
     let count_h: Vec<f32> = (0..w)
-        .map(|x| ((x + tru).min(w - 1) - x.saturating_sub(tru) + 1) as f32)
+        .map(|x| ((x + tr).min(w - 1) - x.saturating_sub(tr) + 1) as f32)
         .collect();
     let count_v: Vec<f32> = (0..h)
-        .map(|y| ((y + tru).min(h - 1) - y.saturating_sub(tru) + 1) as f32)
+        .map(|y| ((y + tr).min(h - 1) - y.saturating_sub(tr) + 1) as f32)
         .collect();
 
-    // reusable scratch buffers
-    let mut diff = vec![0f32; n];
-    let mut hsum = vec![0f32; n]; // horizontal box sum of diff
-    let mut psum = vec![0f32; n]; // full template box sum (patch distance, unnormalized)
+    let strip_h = 128usize; // keep a strip's working set hot in cache
+    let mut out = vec![0u8; n];
+    out.par_chunks_mut(strip_h * w).enumerate().for_each(|(si, ostrip)| {
+        let y0 = si * strip_h;
+        let rows = ostrip.len() / w;
+        let y1 = y0 + rows;
+        // band of source rows needed for the template box of output rows [y0,y1)
+        let band_y0 = y0.saturating_sub(tr);
+        let band_y1 = (y1 + tr).min(h);
+        let band_rows = band_y1 - band_y0;
 
-    for dy in -sr..=sr {
-        for dx in -sr..=sr {
-            // 1) squared diff vs the (dx,dy) shift (parallel over rows)
-            diff.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
-                let sy = (y as i64 + dy).clamp(0, h as i64 - 1) as usize;
-                for x in 0..w {
-                    let sx = (x as i64 + dx).clamp(0, w as i64 - 1) as usize;
-                    let d = srcf[y * w + x] - srcf[sy * w + sx];
-                    row[x] = d * d;
-                }
-            });
-            // 2) horizontal box sum via an alloc-free sliding window (parallel over rows)
-            hsum.par_chunks_mut(w).zip(diff.par_chunks(w)).for_each(|(hrow, drow)| {
-                let mut s = 0f32;
-                for k in 0..=tru.min(w - 1) {
-                    s += drow[k];
-                }
-                hrow[0] = s;
-                for x in 1..w {
-                    let add = x + tru;
-                    if add < w {
-                        s += drow[add];
+        let mut hband = vec![0f32; band_rows * w]; // horizontal box sums (per offset)
+        let mut accum = vec![0f32; rows * w];
+        let mut wsum = vec![0f32; rows * w];
+
+        for dy in -sr..=sr {
+            for dx in -sr..=sr {
+                // 1) horizontal box sum of the squared diff, over the band rows
+                for br in 0..band_rows {
+                    let r = band_y0 + br;
+                    let sr_row = (r as i64 + dy).clamp(0, h as i64 - 1) as usize;
+                    let base = r * w;
+                    let sbase = sr_row * w;
+                    let diff = |x: usize| -> f32 {
+                        let sx = (x as i64 + dx).clamp(0, w as i64 - 1) as usize;
+                        let d = srcf[base + x] - srcf[sbase + sx];
+                        d * d
+                    };
+                    let hb = br * w;
+                    let mut s = 0f32;
+                    for k in 0..=tr.min(w - 1) {
+                        s += diff(k);
                     }
-                    if x > tru {
-                        s -= drow[x - tru - 1];
-                    }
-                    hrow[x] = s;
-                }
-            });
-            // 3) vertical box sum over hsum -> full patch sum (parallel over rows)
-            psum.par_chunks_mut(w).enumerate().for_each(|(y, prow)| {
-                let lo = y.saturating_sub(tru);
-                let hi = (y + tru).min(h - 1);
-                prow.copy_from_slice(&hsum[lo * w..(lo + 1) * w]);
-                for yy in (lo + 1)..=hi {
-                    let hr = &hsum[yy * w..(yy + 1) * w];
-                    for x in 0..w {
-                        prow[x] += hr[x];
+                    hband[hb] = s;
+                    for x in 1..w {
+                        let add = x + tr;
+                        if add < w {
+                            s += diff(add);
+                        }
+                        if x > tr {
+                            s -= diff(x - tr - 1);
+                        }
+                        hband[hb + x] = s;
                     }
                 }
-            });
-            // 4) accumulate weighted contributions (parallel over rows)
-            accum
-                .par_chunks_mut(w)
-                .zip(wsum.par_chunks_mut(w))
-                .enumerate()
-                .for_each(|(y, (arow, wrow))| {
+                // 2) vertical box sum (over the cached hband) + weighted accumulate
+                for oy in 0..rows {
+                    let y = y0 + oy;
+                    let v_lo = y.saturating_sub(tr);
+                    let v_hi = (y + tr).min(h - 1);
                     let cv = count_v[y];
-                    let sy = (y as i64 + dy).clamp(0, h as i64 - 1) as usize;
+                    let sr_acc = (y as i64 + dy).clamp(0, h as i64 - 1) as usize;
+                    let arow = oy * w;
+                    let sbase_acc = sr_acc * w;
                     for x in 0..w {
-                        let area = count_h[x] * cv;
-                        let norm = psum[y * w + x] / area; // mean squared diff
-                        let idx = ((norm * (LUT_N as f32 / MAX_NORM as f32)) as usize).min(LUT_N - 1);
+                        let mut ps = 0f32;
+                        for r in v_lo..=v_hi {
+                            ps += hband[(r - band_y0) * w + x];
+                        }
+                        let norm = ps / (count_h[x] * cv);
+                        let idx = ((norm * lut_scale) as usize).min(NLM_LUT_N - 1);
                         let weight = lut[idx];
                         let sx = (x as i64 + dx).clamp(0, w as i64 - 1) as usize;
-                        arow[x] += weight * srcf[sy * w + sx];
-                        wrow[x] += weight;
+                        accum[arow + x] += weight * srcf[sbase_acc + sx];
+                        wsum[arow + x] += weight;
                     }
-                });
+                }
+            }
         }
-    }
-
-    let mut out = vec![0u8; n];
-    out.par_iter_mut().enumerate().for_each(|(i, px)| {
-        let v = if wsum[i] > 0.0 { accum[i] / wsum[i] } else { srcf[i] };
-        *px = v.round().clamp(0.0, 255.0) as u8;
+        // write strip output
+        for i in 0..rows * w {
+            let v = if wsum[i] > 0.0 { accum[i] / wsum[i] } else { srcf[y0 * w + i] };
+            ostrip[i] = (v + 0.5).clamp(0.0, 255.0) as u8;
+        }
     });
     out
 }
@@ -481,4 +532,50 @@ fn rotate_gray(gray: Vec<u8>, w: usize, h: usize, angle_deg: f32) -> (Vec<u8>, u
         }
     });
     (out, nw, nh)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nlm_preserves_uniform() {
+        let (w, h) = (20, 15);
+        let src = vec![128u8; w * h];
+        let out = nlm_denoise(&src, w, h);
+        assert!(out.iter().all(|&v| (v as i32 - 128).abs() <= 1));
+    }
+
+    #[test]
+    fn nlm_strips_have_no_seams() {
+        // taller than one strip (128): every row must be denoised consistently
+        let (w, h) = (16, 320);
+        let src: Vec<u8> = (0..w * h).map(|i| ((i * 13) % 256) as u8).collect();
+        let out = nlm_denoise(&src, w, h);
+        assert_eq!(out.len(), w * h);
+        // a near-uniform input stays near its value at the strip boundary rows
+        let flat = vec![200u8; w * h];
+        let outf = nlm_denoise(&flat, w, h);
+        for r in [126usize, 127, 128, 129] {
+            for x in 0..w {
+                assert!((outf[r * w + x] as i32 - 200).abs() <= 1, "seam at row {r}");
+            }
+        }
+    }
+
+    #[test]
+    fn sauvola_uniform_is_foreground() {
+        // uniform gray -> std 0 -> thresh = mean*(1-K) < mean -> all 255
+        let (w, h) = (30, 20);
+        let out = sauvola(&vec![100u8; w * h], w, h);
+        assert!(out.iter().all(|&v| v == 255));
+    }
+
+    #[test]
+    fn sauvola_output_is_binary() {
+        let (w, h) = (40, 200); // spans multiple strips
+        let src: Vec<u8> = (0..w * h).map(|i| ((i * 37) % 256) as u8).collect();
+        let out = sauvola(&src, w, h);
+        assert!(out.iter().all(|&v| v == 0 || v == 255));
+    }
 }

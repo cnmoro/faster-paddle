@@ -194,12 +194,14 @@ fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>
     let t = threads.unwrap_or_else(physical_cores).max(1);
     let rb = rec_batch.unwrap_or(ocr::DEFAULT_REC_BATCH);
     // Recognition session-pool size: run several rec sessions concurrently so the
-    // many small rec matmuls keep the cores busy. ~2 threads per session works
-    // well; override with REC_POOL.
+    // many small rec matmuls keep the cores busy. The general heuristic is ~2 ORT
+    // threads per session (small matmuls don't scale past that); this scales with
+    // the core count. Capped at 8 to bound memory (each session holds a copy of
+    // the rec weights). Override with REC_POOL.
     let pool = std::env::var("REC_POOL")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| (t / 2).clamp(1, 4));
+        .unwrap_or_else(|| (t / 2).clamp(1, 8));
     let m = resolve_model(model_size)?;
     Engine::from_memory(&m.det, &m.rec, m.dict, t, rb, m.box_thresh, pool)
         .map_err(|e| PyRuntimeError::new_err(format!("failed to init OCR engine: {e}")))
