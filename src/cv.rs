@@ -310,3 +310,49 @@ pub fn rot90_ccw(src: &[u8], w: usize, h: usize) -> (Vec<u8>, usize, usize) {
     }
     (out, nw, nh)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn convex_hull_square() {
+        let pts = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.5, 0.5)];
+        let hull = convex_hull(&pts);
+        assert_eq!(hull.len(), 4); // interior point dropped
+    }
+
+    #[test]
+    fn min_area_rect_axis_aligned() {
+        // a 10x4 axis-aligned rectangle of points
+        let mut pts = Vec::new();
+        for x in 0..=10 {
+            for y in 0..=4 {
+                pts.push((x as f64, y as f64));
+            }
+        }
+        let (_box, side) = min_area_rect(&pts);
+        assert!((side - 4.0).abs() < 1e-6, "short side should be 4, got {side}");
+    }
+
+    #[test]
+    fn unclip_grows_rect() {
+        let b = [(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (0.0, 4.0)];
+        let g = unclip_rect(&b, 2.0);
+        // every corner should move outward (area strictly larger)
+        let area0 = poly_area(&b);
+        let area1 = poly_area(&g);
+        assert!(area1 > area0, "unclip must enlarge: {area0} -> {area1}");
+    }
+
+    #[test]
+    fn box_score_uniform() {
+        // 5x5 prob map all 0.8; a box covering it -> mean ~0.8
+        let w = 5;
+        let h = 5;
+        let pred = vec![0.8f32; w * h];
+        let b = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)];
+        let s = box_score_fast(&pred, w, h, &b);
+        assert!((s - 0.8).abs() < 0.05, "score {s}");
+    }
+}

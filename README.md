@@ -4,7 +4,8 @@
 reimplementation of PaddleOCR's PP-OCRv6 detection + recognition pipeline
 powered by [ONNX Runtime](https://onnxruntime.ai/).
 
-- ⚡ **~7× faster** than `paddleocr` on CPU for the same models and output.
+- ⚡ **~9× faster** than `paddleocr` on CPU for the same models and output
+  (parallel detection pre/post-processing + a concurrent recognition session pool).
 - 📦 **Self-contained** — the tiny + small ONNX models are bundled inside the
   wheel. No `paddlepaddle`, no model downloads for tiny/small.
 - 🎚️ **Three model sizes**: `tiny` (default, fastest), `small`, and `medium`
@@ -15,7 +16,7 @@ powered by [ONNX Runtime](https://onnxruntime.ai/).
 
 ```
 paddleocr (PaddlePaddle, CPU)        22.7 s / image
-faster-paddle (Rust + ONNXRuntime)    3.0 s / image     →  ~7.7× faster
+faster-paddle (Rust + ONNXRuntime)    2.5 s / image     →  ~9× faster
 ```
 *(test image 3157×4464, AMD Ryzen 7 5800X3D; both after warm-up, same weights.)*
 
@@ -194,6 +195,19 @@ maturin build --release        # produce a wheel in target/wheels/
 
 Requires a Rust toolchain. ONNX Runtime is fetched automatically by the `ort`
 crate at build time and linked into the extension.
+
+## Tests
+
+```bash
+cargo test --release                 # Rust unit tests (geometry, resize, CTC)
+maturin develop --release            # then the Python integration tests:
+python faster_paddle/tests/test_integration.py
+```
+
+The integration tests check the result shape, known-text detection, that the
+recognition session pool is deterministic, that bounds map back to original
+coordinates after `resize`, that all preprocessing options run, and a speed
+regression guard.
 
 ## License
 
