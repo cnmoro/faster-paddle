@@ -10,13 +10,11 @@ mod layout;
 mod ocr;
 mod preprocess;
 
-// glibc <2.38 compatibility. The prebuilt ONNX Runtime static library is built
-// against glibc 2.38, which redirects strtol/strtoll/strtoull to __isoc23_*
-// variants. That makes the extension fail to load on glibc 2.36/2.37 (e.g.
-// Debian 12 / python:3.11-slim-bookworm) with
-// `undefined symbol: __isoc23_strtoll`. We provide these three symbols ourselves
-// (forwarding to the base C functions), which resolves ONNX Runtime's references
-// at link time and drops the GLIBC_2.38 requirement, so wheels run on glibc 2.28+.
+// Older-glibc compatibility shims. Prebuilt components (ONNX Runtime, Rust std)
+// reference a few symbols from newer glibc; we provide them ourselves so the
+// references resolve at link time and the wheels run on older glibc:
+//   - __isoc23_strto{l,ll,ull} (glibc 2.38) — ONNX Runtime's strtol* redirects.
+//   - __libc_single_threaded   (glibc 2.32) — Rust std's atomics fast-path.
 #[cfg(target_os = "linux")]
 mod glibc_compat {
     use std::os::raw::{c_char, c_int, c_long, c_longlong, c_ulonglong};
@@ -37,6 +35,16 @@ mod glibc_compat {
     pub unsafe extern "C" fn __isoc23_strtoull(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_ulonglong {
         strtoull(s, e, b)
     }
+
+    // glibc 2.32 introduced `__libc_single_threaded` (a byte that Rust's std reads
+    // to skip atomics in single-threaded processes). The prebuilt std references
+    // it, so on glibc < 2.32 the extension fails with
+    // `undefined symbol: __libc_single_threaded` (hit on aarch64 wheels, whose
+    // other symbols top out at glibc 2.28 — e.g. Debian 11 / Ubuntu 20.04 arm64).
+    // Provide it as 0 ("not single-threaded" — always-safe: std just keeps using
+    // atomics), so the wheel loads on glibc 2.28+.
+    #[no_mangle]
+    pub static __libc_single_threaded: u8 = 0;
 }
 
 use base64::Engine as _;

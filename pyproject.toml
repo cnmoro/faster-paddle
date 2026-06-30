@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "faster-paddle"
-version = "0.0.8"
+version = "0.0.9"
 description = "Fast CPU OCR — PaddleOCR PP-OCRv6 tiny (lightweight), reimplemented in Rust + ONNX Runtime. ~7x faster than PaddlePaddle, self-contained wheels with models bundled."
 readme = "README.md"
 requires-python = ">=3.8"
