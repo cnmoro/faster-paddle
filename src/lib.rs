@@ -43,7 +43,7 @@ use base64::Engine as _;
 use ocr::{Engine, ImageBgr};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyTuple};
+use pyo3::types::{PyBytes, PyDict, PyTuple};
 use std::borrow::Cow;
 use std::sync::{Mutex, OnceLock};
 
@@ -190,6 +190,48 @@ fn decode_bgr(bytes: &[u8]) -> Result<ImageBgr, String> {
     Ok(ImageBgr { w, h, data })
 }
 
+/// Encode a BGR image to PNG bytes. If the image is grayscale (all channels
+/// equal, e.g. after denoise/deskew/binarize) it is written as a smaller 8-bit
+/// grayscale PNG; otherwise as RGB.
+fn encode_png(img: &ImageBgr) -> Result<Vec<u8>, String> {
+    let n = img.w * img.h;
+    let is_gray = (0..n).all(|i| img.data[i * 3] == img.data[i * 3 + 1] && img.data[i * 3 + 1] == img.data[i * 3 + 2]);
+    let mut out = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut out);
+    if is_gray {
+        let gray: Vec<u8> = (0..n).map(|i| img.data[i * 3]).collect();
+        let buf = image::GrayImage::from_raw(img.w as u32, img.h as u32, gray)
+            .ok_or("failed to build grayscale image")?;
+        image::DynamicImage::ImageLuma8(buf)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+    } else {
+        let mut rgb = vec![0u8; n * 3];
+        for i in 0..n {
+            rgb[i * 3] = img.data[i * 3 + 2]; // R
+            rgb[i * 3 + 1] = img.data[i * 3 + 1]; // G
+            rgb[i * 3 + 2] = img.data[i * 3]; // B
+        }
+        let buf = image::RgbImage::from_raw(img.w as u32, img.h as u32, rgb)
+            .ok_or("failed to build RGB image")?;
+        image::DynamicImage::ImageRgb8(buf)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(out)
+}
+
+/// Run the (enabled) preprocessing steps and return the prepared image as PNG
+/// bytes. Returns the original bytes unchanged when no option is enabled.
+fn prepare_bytes(image: &[u8], opts: preprocess::PreOpts) -> Result<Vec<u8>, String> {
+    if !opts.any() {
+        return Ok(image.to_vec());
+    }
+    let img = decode_bgr(image)?;
+    let (processed, _transform) = preprocess::preprocess(img, &opts);
+    encode_png(&processed)
+}
+
 fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>) -> PyResult<Engine> {
     let t = threads.unwrap_or_else(physical_cores).max(1);
     let rb = rec_batch.unwrap_or(ocr::DEFAULT_REC_BATCH);
@@ -324,6 +366,27 @@ impl OcrEngine {
             .map_err(PyRuntimeError::new_err)?;
         build_dict(py, raw)
     }
+
+    /// Apply the enabled preprocessing steps (resize, denoise, deskew, binarize)
+    /// in one pass and return the prepared image as PNG bytes (this does not run
+    /// OCR). If every option is ``False`` the original bytes are returned
+    /// unchanged.
+    #[pyo3(signature = (image, resize=false, denoise=false, deskew=false, binarize=false))]
+    fn prepare<'py>(
+        &self,
+        py: Python<'py>,
+        image: &[u8],
+        resize: bool,
+        denoise: bool,
+        deskew: bool,
+        binarize: bool,
+    ) -> PyResult<Bound<'py, PyBytes>> {
+        let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
+        let out = py
+            .allow_threads(|| prepare_bytes(image, opts))
+            .map_err(PyRuntimeError::new_err)?;
+        Ok(PyBytes::new(py, &out))
+    }
 }
 
 // ---- module-level convenience using a lazily-built default engine ----
@@ -374,11 +437,31 @@ fn py_ocr_base64<'py>(
     build_dict(py, raw)
 }
 
+/// Apply the enabled preprocessing steps and return the prepared image as PNG
+/// bytes (no OCR). Returns the original bytes unchanged when no option is set.
+#[pyfunction]
+#[pyo3(name = "prepare", signature = (image, resize=false, denoise=false, deskew=false, binarize=false))]
+fn py_prepare<'py>(
+    py: Python<'py>,
+    image: &[u8],
+    resize: bool,
+    denoise: bool,
+    deskew: bool,
+    binarize: bool,
+) -> PyResult<Bound<'py, PyBytes>> {
+    let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
+    let out = py
+        .allow_threads(|| prepare_bytes(image, opts))
+        .map_err(PyRuntimeError::new_err)?;
+    Ok(PyBytes::new(py, &out))
+}
+
 #[pymodule]
 fn faster_paddle(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<OcrEngine>()?;
     m.add_function(wrap_pyfunction!(py_ocr, m)?)?;
     m.add_function(wrap_pyfunction!(py_ocr_base64, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare, m)?)?;
     Ok(())
 }

@@ -79,6 +79,22 @@ Returned `bounds` are always in the **original image's coordinate space** — ev
 when `resize` or `deskew` changes the working image, the boxes are mapped back so
 they line up with your input.
 
+### Preprocess only (no OCR)
+
+`prepare` runs the same preprocessing in one pass and returns the prepared image
+as **PNG bytes** (grayscale once any of denoise/deskew/binarize is on, else
+color). If every option is `False` the original bytes are returned unchanged.
+
+```python
+prepared = engine.prepare(image_bytes, resize=True, denoise=True, deskew=True, binarize=False)
+# or module-level:  faster_paddle.prepare(image_bytes, resize=True, ...)
+
+with open("prepared.png", "wb") as f:
+    f.write(prepared)
+# you can also feed it straight back in:
+result = engine.ocr(prepared)
+```
+
 ### Model sizes
 
 | size     | bundled | det+rec | notes |
@@ -152,6 +168,8 @@ Key                                                Value
 | `OcrEngine(model_size="tiny", threads=None, rec_batch=None)` | Construct a reusable engine. |
 | `OcrEngine.ocr(image, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR encoded image bytes. |
 | `OcrEngine.ocr_base64(image_base64, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR a base64 image string. |
+| `faster_paddle.prepare(image, resize=False, denoise=False, deskew=False, binarize=False) -> bytes` | Preprocess only; returns PNG bytes (no OCR). |
+| `OcrEngine.prepare(image, resize=False, denoise=False, deskew=False, binarize=False) -> bytes` | Preprocess only; returns PNG bytes (no OCR). |
 
 - `resize`/`denoise`/`deskew`/`binarize`: optional preprocessing (see above).
 - `model_size`: `"tiny"` (default), `"small"`, or `"medium"`.
