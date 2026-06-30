@@ -13,6 +13,13 @@ fn main() {
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let static_cxx = matches!(std::env::var("ORT_CXX_STDLIB").as_deref(), Ok(""));
     if target_os == "linux" && static_cxx {
-        println!("cargo:rustc-link-lib=static=stdc++");
+        // Link libstdc++ statically at the *end* of the link line (as a link-arg,
+        // which the linker places after all rlibs/archives) so it resolves the
+        // C++ symbols referenced by the ONNX Runtime archive and pulls in all the
+        // members it needs. `cargo:rustc-link-lib=static=stdc++` placed it too
+        // early in the order, leaving the C++ runtime unresolved.
+        println!("cargo:rustc-link-arg=-Wl,--push-state,-Bstatic");
+        println!("cargo:rustc-link-arg=-lstdc++");
+        println!("cargo:rustc-link-arg=-Wl,--pop-state");
     }
 }
