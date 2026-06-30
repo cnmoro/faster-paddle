@@ -40,6 +40,11 @@ jobs:
           args: --release --out dist
           sccache: "true"
           manylinux: ${{ matrix.manylinux }}
+          # Tell ort-sys to skip its dynamic libstdc++ link; build.rs links the
+          # C++ runtime statically instead, so the wheel doesn't depend on the
+          # host's libstdc++.so.6 version (manylinux GCC 11 references
+          # GLIBCXX_3.4.29 symbols missing on older systems).
+          before-script-linux: export ORT_CXX_STDLIB=
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}

@@ -42,9 +42,12 @@ mod glibc_compat {
     // `undefined symbol: __libc_single_threaded` (hit on aarch64 wheels, whose
     // other symbols top out at glibc 2.28 — e.g. Debian 11 / Ubuntu 20.04 arm64).
     // Provide it as 0 ("not single-threaded" — always-safe: std just keeps using
-    // atomics), so the wheel loads on glibc 2.28+.
+    // atomics), so the wheel loads on glibc 2.28+. It must live in writable .data
+    // (glibc's real one is a writable global), hence `static mut`: in an
+    // executable context glibc may write through this symbol, which would fault
+    // on a read-only static.
     #[no_mangle]
-    pub static __libc_single_threaded: u8 = 0;
+    pub static mut __libc_single_threaded: u8 = 0;
 }
 
 use base64::Engine as _;
