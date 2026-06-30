@@ -12,21 +12,23 @@ permissions:
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     # aarch64 is built best-effort; its failure must not block publishing the
     # other platforms (the x86_64 wheel is what most servers need).
     continue-on-error: ${{ matrix.target == 'aarch64' }}
     strategy:
       fail-fast: false
       matrix:
-        # Per-target manylinux: x86_64 honestly needs glibc 2.34 (ONNX Runtime's
-        # pthread@GLIBC_2.34). The maturin-action manylinux_2_34 aarch64
-        # cross-image fails to build, so aarch64 uses the 2_28 cross-image that
-        # worked previously (the __isoc23 shim keeps it loadable on glibc < 2.38).
+        # x86_64 honestly needs glibc 2.34 (ONNX Runtime's pthread@GLIBC_2.34).
+        # aarch64 builds NATIVELY on an arm64 runner (cross-compilation silently
+        # failed to static-link libstdc++); its ONNX Runtime tops out at glibc
+        # 2.28, so it's tagged manylinux_2_28.
         include:
           - target: x86_64
+            runner: ubuntu-latest
             manylinux: "2_34"
           - target: aarch64
+            runner: ubuntu-24.04-arm
             manylinux: "2_28"
     steps:
       - uses: actions/checkout@v4
