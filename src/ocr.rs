@@ -12,6 +12,11 @@ const DET_MAX_CANDIDATES: usize = 3000;
 const DET_MIN_SIZE: f64 = 3.0;
 const LIMIT_SIDE_LEN: i64 = 736;
 const MAX_SIDE_LIMIT: i64 = 4000;
+/// Default cap on the detector's longer side. PaddleOCR runs detection at up to
+/// 4000px, but the tiny detector locates text just as well at ~1600px (recognition
+/// still crops from the full-res image, so text stays sharp) — ~2x faster with
+/// negligible quality loss. Raise toward 4000 for microscopic text.
+pub const DEFAULT_DET_MAX_SIDE: i64 = 1600;
 const DET_MEAN: [f32; 3] = [0.485, 0.456, 0.406];
 const DET_STD: [f32; 3] = [0.229, 0.224, 0.225];
 
@@ -20,6 +25,10 @@ const REC_MAX_W: usize = 3200;
 // Small batches minimise width padding; the rec session pool supplies the
 // parallelism, so a small batch is fastest.
 pub const DEFAULT_REC_BATCH: usize = 4;
+/// Recognition batch budget: a batch grows until `count * max_rec_width` exceeds
+/// this, so narrow crops batch together while wide line-crops run nearly alone
+/// (avoiding wasted padding compute).
+pub const REC_BATCH_BUDGET: usize = 2400;
 
 pub struct OcrResult {
     pub text: String,
@@ -36,6 +45,7 @@ pub struct Engine {
     chars: Vec<String>,
     rec_batch: usize,
     box_thresh: f32,
+    det_max_side: i64,
 }
 
 /// BGR u8 image.
@@ -56,6 +66,7 @@ impl Engine {
         rec_batch: usize,
         box_thresh: f32,
         rec_pool: usize,
+        det_max_side: i64,
     ) -> ort::Result<Self> {
         let build = |bytes: &[u8], t: usize| -> ort::Result<Session> {
             Session::builder()?
@@ -83,6 +94,7 @@ impl Engine {
             chars,
             rec_batch: rec_batch.max(1),
             box_thresh,
+            det_max_side: if det_max_side <= 0 { MAX_SIDE_LIMIT } else { det_max_side },
         })
     }
 
@@ -91,7 +103,7 @@ impl Engine {
         let t0 = std::time::Instant::now();
         // ---------- detection ----------
         use rayon::prelude::*;
-        let (rw, rh) = det_resize_dims(img.w, img.h);
+        let (rw, rh) = det_resize_dims(img.w, img.h, self.det_max_side);
         let tpr = std::time::Instant::now();
         let resized = resize_bilinear_bgr(&img.data, img.w, img.h, rw, rh);
         if dbg {
@@ -161,18 +173,20 @@ impl Engine {
         }
         let t3 = std::time::Instant::now();
 
-        // sort by aspect ratio for batching
+        // sort by rec-input width so a batch groups similar-width crops
+        let rec_w = |c: &ImageBgr| -> usize {
+            ((REC_H as f64 * c.w as f64 / c.h as f64).ceil() as usize).clamp(1, REC_MAX_W)
+        };
+        let rec_widths: Vec<usize> = crops.iter().map(rec_w).collect();
         let mut order: Vec<usize> = (0..crops.len()).collect();
-        order.sort_by(|&a, &b| {
-            let ra = crops[a].w as f64 / crops[a].h as f64;
-            let rb = crops[b].w as f64 / crops[b].h as f64;
-            ra.partial_cmp(&rb).unwrap()
-        });
+        order.sort_by_key(|&i| rec_widths[i]);
 
-        // Build batches (similar-width crops grouped to minimise padding), then
-        // run them concurrently across the rec session pool.
-        let rec_batch = self.rec_batch;
-        let batches: Vec<&[usize]> = order.chunks(rec_batch).collect();
+        // Pixel-budget batching: grow a batch until `count * max_width` exceeds a
+        // budget, so narrow crops batch many together (amortising per-call cost)
+        // while wide line-crops run in tiny batches (no wasted padding compute).
+        let budget = std::env::var("REC_BUDGET").ok().and_then(|s| s.parse().ok()).unwrap_or(REC_BATCH_BUDGET);
+        let max_count = self.rec_batch.max(1) * 16; // safety cap only
+        let batches = plan_rec_batches(&order, &rec_widths, budget, max_count);
         let mut texts: Vec<(String, f32)> = vec![(String::new(), 0.0); crops.len()];
 
         let chars = &self.chars;
@@ -316,7 +330,31 @@ fn ctc_decode(chars: &[String], logits: &[f32], t: usize, cls: usize) -> (String
     (s, score)
 }
 
-fn det_resize_dims(w: usize, h: usize) -> (usize, usize) {
+/// Group `order` (crop indices, pre-sorted by rec width ascending) into batches
+/// so that `batch_len * max_rec_width_in_batch <= budget` (a padding-compute
+/// budget), with a hard `max_count` per batch. Narrow crops batch many together;
+/// wide line-crops end up nearly alone.
+fn plan_rec_batches(order: &[usize], rec_widths: &[usize], budget: usize, max_count: usize) -> Vec<Vec<usize>> {
+    let mut batches: Vec<Vec<usize>> = Vec::new();
+    let mut cur: Vec<usize> = Vec::new();
+    let mut cur_max = 0usize;
+    for &idx in order {
+        let w = rec_widths[idx];
+        let new_max = cur_max.max(w);
+        if !cur.is_empty() && ((cur.len() + 1) * new_max > budget || cur.len() >= max_count) {
+            batches.push(std::mem::take(&mut cur));
+            cur_max = 0;
+        }
+        cur_max = cur_max.max(w);
+        cur.push(idx);
+    }
+    if !cur.is_empty() {
+        batches.push(cur);
+    }
+    batches
+}
+
+fn det_resize_dims(w: usize, h: usize, max_side: i64) -> (usize, usize) {
     let (h, w) = (h as i64, w as i64);
     // limit_type = "min"
     let ratio = if w.min(h) < LIMIT_SIDE_LEN {
@@ -326,8 +364,8 @@ fn det_resize_dims(w: usize, h: usize) -> (usize, usize) {
     };
     let mut rh = (h as f64 * ratio) as i64;
     let mut rw = (w as f64 * ratio) as i64;
-    if rh.max(rw) > MAX_SIDE_LIMIT {
-        let r2 = MAX_SIDE_LIMIT as f64 / rh.max(rw) as f64;
+    if rh.max(rw) > max_side {
+        let r2 = max_side as f64 / rh.max(rw) as f64;
         rh = (rh as f64 * r2) as i64;
         rw = (rw as f64 * r2) as i64;
     }
@@ -551,6 +589,42 @@ mod tests {
         let src = vec![128u8; 100 * 80 * 3];
         let out = resize_bilinear_bgr(&src, 100, 80, 50, 40);
         assert_eq!(out.len(), 50 * 40 * 3);
+    }
+
+    #[test]
+    fn batcher_narrow_crops_group_wide_run_alone() {
+        // widths sorted ascending: three narrow (100) then two wide (2000)
+        let widths = vec![100usize, 100, 100, 2000, 2000];
+        let order: Vec<usize> = (0..widths.len()).collect();
+        let b = plan_rec_batches(&order, &widths, 2400, 64);
+        // narrow: 2400/100 = up to 24 -> all 3 in one batch; wide: 2400/2000 -> 1 each
+        assert_eq!(b[0], vec![0, 1, 2]);
+        assert_eq!(b[1], vec![3]);
+        assert_eq!(b[2], vec![4]);
+    }
+
+    #[test]
+    fn batcher_covers_all_indices_once() {
+        let widths: Vec<usize> = (0..37).map(|i| 50 + (i * 91) % 1500).collect();
+        let mut order: Vec<usize> = (0..widths.len()).collect();
+        order.sort_by_key(|&i| widths[i]);
+        let b = plan_rec_batches(&order, &widths, 2400, 8);
+        let mut seen: Vec<usize> = b.iter().flatten().copied().collect();
+        seen.sort();
+        assert_eq!(seen, (0..37).collect::<Vec<_>>());
+        assert!(b.iter().all(|batch| batch.len() <= 8));
+    }
+
+    #[test]
+    fn det_resize_caps_long_side() {
+        // large image: long side capped near max_side, rounded to a multiple of 32
+        let (w, h) = det_resize_dims(2480, 3508, 1600);
+        assert!(w.max(h) <= 1600 && w.max(h) >= 1568, "{w}x{h}");
+        assert!(w % 32 == 0 && h % 32 == 0);
+        // an image already within [736, max]: only /32 rounding, no large rescale
+        let (w2, h2) = det_resize_dims(900, 800, 1600);
+        assert!((w2 as i64 - 900).abs() <= 32 && (h2 as i64 - 800).abs() <= 32);
+        assert!(w2 % 32 == 0 && h2 % 32 == 0);
     }
 
     #[test]

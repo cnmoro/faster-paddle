@@ -48,7 +48,7 @@ Reuse an explicit engine (recommended for servers — load the models once):
 from faster_paddle import OcrEngine
 
 # model_size: "tiny" (default), "small", or "medium"
-engine = OcrEngine(model_size="tiny", threads=None, rec_batch=6)
+engine = OcrEngine(model_size="tiny", threads=None, det_max_side=1600)
 
 result = engine.ocr(image_bytes)                 # raw jpeg/png/webp/bmp/tiff/gif bytes
 result = engine.ocr_base64(b64_string)           # base64-encoded image
@@ -165,7 +165,7 @@ Key                                                Value
 |---|---|
 | `faster_paddle.ocr(image, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR encoded image bytes (shared default engine). |
 | `faster_paddle.ocr_base64(image_base64, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR a base64 image string. |
-| `OcrEngine(model_size="tiny", threads=None, rec_batch=None)` | Construct a reusable engine. |
+| `OcrEngine(model_size="tiny", threads=None, rec_batch=None, det_max_side=None)` | Construct a reusable engine. |
 | `OcrEngine.ocr(image, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR encoded image bytes. |
 | `OcrEngine.ocr_base64(image_base64, resize=False, denoise=False, deskew=False, binarize=False) -> dict` | OCR a base64 image string. |
 | `faster_paddle.prepare(image, resize=False, denoise=False, deskew=False, binarize=False) -> bytes` | Preprocess only; returns PNG bytes (no OCR). |
@@ -175,10 +175,31 @@ Key                                                Value
 - `model_size`: `"tiny"` (default), `"small"`, or `"medium"`.
 - `threads`: ONNX Runtime intra-op threads. Defaults to the number of **physical**
   CPU cores (SMT/logical threads tend to slow compute-bound inference down).
-- `rec_batch`: recognition batch size (default 6).
+- `rec_batch`: recognition batch cap (default 4; batching is otherwise adaptive).
+- `det_max_side`: cap on the detector's longer side (default **1600**). Large
+  images are downscaled to this **for detection only** — recognition still crops
+  from the full-resolution image, so text stays sharp. This makes detection
+  ~2× faster on typical documents with negligible quality loss (the tiny
+  detector locates text just as well below its useful resolution). Never
+  upscales. Raise toward `4000` (PaddleOCR's default) for microscopic text, or
+  lower (e.g. `1280`) for more speed.
 
 Calls are thread-safe (serialized internally) and release the GIL during
 inference.
+
+### Parallelism (automatic, hardware-scaled)
+
+All parallelism is derived from the detected hardware — nothing is hardcoded:
+
+- **ONNX Runtime threads** default to the number of **physical** cores.
+- **Recognition** runs across a pool of ONNX Runtime sessions sized to target
+  ~4 threads per session (`cores/4`, capped for memory), so it scales with the
+  core count. Crops are grouped by a **pixel budget** so narrow crops batch
+  together while wide line-crops run nearly alone (no wasted padding compute).
+- The **pre/post-processing** (resize, denoise, deskew, binarize, DB decode,
+  crop extraction) runs on rayon, scaled to the logical cores.
+
+Override via `OCR_THREADS`, `REC_POOL`, `REC_BUDGET`, and `RAYON_NUM_THREADS`.
 
 ---
 
@@ -186,8 +207,10 @@ inference.
 
 The pipeline faithfully mirrors PaddleOCR's lightweight path:
 
-1. **Detection** — resize (min-side 736, clamp max-side 4000, round to ×32),
-   normalize (BGR mean/std), run the DB detector.
+1. **Detection** — resize (min-side 736, cap the longer side at `det_max_side`
+   = 1600 by default vs PaddleOCR's 4000, round to ×32), normalize (BGR mean/std),
+   run the DB detector. Detecting at a lower resolution *locates* text just as
+   well and is much faster; recognition still crops from the full-res image.
 2. **DB post-process** — threshold 0.2, connected components, `minAreaRect`,
    box score ≥ 0.4, `unclip` ratio 1.4, rescale to source coordinates.
 3. **Sort** boxes top-to-bottom / left-to-right; **crop** each via perspective warp.

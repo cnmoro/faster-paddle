@@ -243,20 +243,21 @@ fn prepare_bytes(image: &[u8], opts: preprocess::PreOpts) -> Result<Vec<u8>, Str
     encode_png(&processed)
 }
 
-fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>) -> PyResult<Engine> {
+fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>, det_max_side: Option<i64>) -> PyResult<Engine> {
     let t = threads.unwrap_or_else(physical_cores).max(1);
     let rb = rec_batch.unwrap_or(ocr::DEFAULT_REC_BATCH);
+    let det_max = det_max_side.unwrap_or(ocr::DEFAULT_DET_MAX_SIDE);
     // Recognition session-pool size: run several rec sessions concurrently so the
-    // many small rec matmuls keep the cores busy. The general heuristic is ~2 ORT
-    // threads per session (small matmuls don't scale past that); this scales with
-    // the core count. Capped at 8 to bound memory (each session holds a copy of
-    // the rec weights). Override with REC_POOL.
+    // many small rec matmuls keep the cores busy. ~4 ORT threads per session is a
+    // good balance — wide line-crops (the rec-bound case) have big matmuls that
+    // want the extra threads, while narrow crops still get useful concurrency.
+    // Scales with core count; capped at 8 to bound memory. Override with REC_POOL.
     let pool = std::env::var("REC_POOL")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| (t / 2).clamp(1, 8));
+        .unwrap_or_else(|| (t / 4).clamp(1, 8));
     let m = resolve_model(model_size)?;
-    Engine::from_memory(&m.det, &m.rec, m.dict, t, rb, m.box_thresh, pool)
+    Engine::from_memory(&m.det, &m.rec, m.dict, t, rb, m.box_thresh, pool, det_max)
         .map_err(|e| PyRuntimeError::new_err(format!("failed to init OCR engine: {e}")))
 }
 
@@ -322,13 +323,17 @@ impl OcrEngine {
     ///     model_size: "tiny" (default, bundled), "small" (bundled), or "medium"
     ///         (downloaded once and cached on first use).
     ///     threads: ONNX Runtime intra-op threads. Defaults to physical cores.
-    ///     rec_batch: recognition batch size (default 6).
+    ///     rec_batch: recognition batch size (default 4).
+    ///     det_max_side: cap on the detector's longer side (default 1600). Large
+    ///         images are downscaled to this for detection only (recognition still
+    ///         crops from full resolution) — much faster with negligible quality
+    ///         loss. Raise toward 4000 for microscopic text; it never upscales.
     #[new]
-    #[pyo3(signature = (model_size="tiny", threads=None, rec_batch=None))]
-    fn new(py: Python<'_>, model_size: &str, threads: Option<usize>, rec_batch: Option<usize>) -> PyResult<Self> {
+    #[pyo3(signature = (model_size="tiny", threads=None, rec_batch=None, det_max_side=None))]
+    fn new(py: Python<'_>, model_size: &str, threads: Option<usize>, rec_batch: Option<usize>, det_max_side: Option<i64>) -> PyResult<Self> {
         // medium may download large files; release the GIL during construction.
         let size = model_size.to_string();
-        let engine = py.allow_threads(|| new_engine(&size, threads, rec_batch))?;
+        let engine = py.allow_threads(|| new_engine(&size, threads, rec_batch, det_max_side))?;
         Ok(Self {
             inner: Mutex::new(engine),
         })
@@ -407,7 +412,7 @@ fn default_engine() -> PyResult<&'static Mutex<Engine>> {
     if let Some(e) = DEFAULT_ENGINE.get() {
         return Ok(e);
     }
-    let eng = new_engine("tiny", None, None)?;
+    let eng = new_engine("tiny", None, None, None)?;
     Ok(DEFAULT_ENGINE.get_or_init(|| Mutex::new(eng)))
 }
 
