@@ -142,21 +142,21 @@ multi-column prose: there the absolute pixel spacing of `structured_text`
 produces very wide lines, so the column-merging `text` reconstruction reads
 better. Both are always returned, so you can pick per use case.
 
-Example `structured_text` for a two-pane database UI:
+Example `structured_text` for a two-pane file-tree + settings UI:
 
 ```
-PNS
- Collections (11)
-   System
-   CAGED
-   IPCMAPS_MUNICIPIO
- Functions
- Users
+Project
+ src (14)
+   main.rs
+   parser.rs
+   utils.rs
+ tests
+ docs
 
-Key                                                Value
-        OUTRAS_DESPESAS_POTENCIAL_DE_CONSUMO_EM... 7332964
-        TOTAL_DO_CONSUMO_URBANO_E_RURAL            613855113
-        CD_MUNI_IBGE                               1100015
+Setting                                            Value
+        max_connections                            128
+        request_timeout_seconds                    30
+        cache_size_mb                              512
 ```
 
 ## API
