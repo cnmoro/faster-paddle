@@ -7,6 +7,14 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Serialize runs that share a ref so a tag push can't spawn two runs that race
+# each other's PyPI upload (that race produced a spurious "Publish to PyPI"
+# failure on v1.0.0). cancel-in-progress:false lets an in-flight publish finish;
+# a queued duplicate then re-runs and cleanly --skip-existing's the same files.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
