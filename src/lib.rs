@@ -51,7 +51,7 @@ mod glibc_compat {
 }
 
 use base64::Engine as _;
-use ocr::{Engine, ImageBgr};
+use ocr::{Engine, ImageRgb};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyTuple};
@@ -185,26 +185,21 @@ fn physical_cores() -> usize {
     std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)
 }
 
-/// Decode encoded image bytes (jpeg/png/...) into a BGR buffer matching
-/// cv2.imread channel order (PaddleOCR feeds the network BGR).
-fn decode_bgr(bytes: &[u8]) -> Result<ImageBgr, String> {
+/// Decode encoded image bytes (jpeg/png/...) into an RGB buffer. The network
+/// wants BGR planes (cv2.imread order), but rather than swapping every pixel
+/// here, the channel index is flipped where the NCHW tensors are filled — so a
+/// JPEG/PNG that decodes straight to RGB8 needs no extra pass at all.
+fn decode_rgb(bytes: &[u8]) -> Result<ImageRgb, String> {
     let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
-    let rgb = img.to_rgb8();
+    let rgb = img.into_rgb8(); // move (no copy) when already RGB8
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
-    let raw = rgb.into_raw();
-    let mut data = vec![0u8; w * h * 3];
-    for i in 0..w * h {
-        data[i * 3] = raw[i * 3 + 2]; // B
-        data[i * 3 + 1] = raw[i * 3 + 1]; // G
-        data[i * 3 + 2] = raw[i * 3]; // R
-    }
-    Ok(ImageBgr { w, h, data })
+    Ok(ImageRgb { w, h, data: rgb.into_raw() })
 }
 
-/// Encode a BGR image to PNG bytes. If the image is grayscale (all channels
+/// Encode an RGB image to PNG bytes. If the image is grayscale (all channels
 /// equal, e.g. after denoise/deskew/binarize) it is written as a smaller 8-bit
 /// grayscale PNG; otherwise as RGB.
-fn encode_png(img: &ImageBgr) -> Result<Vec<u8>, String> {
+fn encode_png(img: &ImageRgb) -> Result<Vec<u8>, String> {
     let n = img.w * img.h;
     let is_gray = (0..n).all(|i| img.data[i * 3] == img.data[i * 3 + 1] && img.data[i * 3 + 1] == img.data[i * 3 + 2]);
     let mut out = Vec::new();
@@ -217,13 +212,7 @@ fn encode_png(img: &ImageBgr) -> Result<Vec<u8>, String> {
             .write_to(&mut cursor, image::ImageFormat::Png)
             .map_err(|e| e.to_string())?;
     } else {
-        let mut rgb = vec![0u8; n * 3];
-        for i in 0..n {
-            rgb[i * 3] = img.data[i * 3 + 2]; // R
-            rgb[i * 3 + 1] = img.data[i * 3 + 1]; // G
-            rgb[i * 3 + 2] = img.data[i * 3]; // B
-        }
-        let buf = image::RgbImage::from_raw(img.w as u32, img.h as u32, rgb)
+        let buf = image::RgbImage::from_raw(img.w as u32, img.h as u32, img.data.clone())
             .ok_or("failed to build RGB image")?;
         image::DynamicImage::ImageRgb8(buf)
             .write_to(&mut cursor, image::ImageFormat::Png)
@@ -238,26 +227,38 @@ fn prepare_bytes(image: &[u8], opts: preprocess::PreOpts) -> Result<Vec<u8>, Str
     if !opts.any() {
         return Ok(image.to_vec());
     }
-    let img = decode_bgr(image)?;
+    let img = decode_rgb(image)?;
     let (processed, _transform) = preprocess::preprocess(img, &opts);
     encode_png(&processed)
 }
 
 fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>, det_max_side: Option<i64>) -> PyResult<Engine> {
     let t = threads.unwrap_or_else(physical_cores).max(1);
+    // The det model is one big conv graph over a ~1600px image: unlike the small
+    // rec batches it scales past the physical cores, so it gets the SMT threads
+    // too — but only when `threads` wasn't set explicitly (an explicit value is
+    // a CPU budget the user chose; honor it everywhere).
+    let det_t = std::env::var("OCR_DET_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| match threads {
+            Some(t) => t.max(1),
+            None => std::thread::available_parallelism().map(|n| n.get()).unwrap_or(t).max(t),
+        });
     let rb = rec_batch.unwrap_or(ocr::DEFAULT_REC_BATCH);
     let det_max = det_max_side.unwrap_or(ocr::DEFAULT_DET_MAX_SIDE);
     // Recognition session-pool size: run several rec sessions concurrently so the
-    // many small rec matmuls keep the cores busy. ~4 ORT threads per session is a
-    // good balance — wide line-crops (the rec-bound case) have big matmuls that
-    // want the extra threads, while narrow crops still get useful concurrency.
-    // Scales with core count; capped at 8 to bound memory. Override with REC_POOL.
+    // many small rec matmuls keep the cores busy. One single-threaded session per
+    // physical core benchmarks fastest (~25-35% over pooled multi-threaded
+    // sessions): rec batches are small, so cross-thread matmul splitting wastes
+    // more in sync than it gains. Capped at 8 to bound memory. Override with
+    // REC_POOL.
     let pool = std::env::var("REC_POOL")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| (t / 4).clamp(1, 8));
+        .unwrap_or_else(|| t.clamp(1, 8));
     let m = resolve_model(model_size)?;
-    Engine::from_memory(&m.det, &m.rec, m.dict, t, rb, m.box_thresh, pool, det_max)
+    Engine::from_memory(&m.det, &m.rec, m.dict, t, det_t, rb, m.box_thresh, pool, det_max)
         .map_err(|e| PyRuntimeError::new_err(format!("failed to init OCR engine: {e}")))
 }
 
@@ -265,7 +266,12 @@ fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>
 type RawResult = (String, String, Vec<(usize, [i32; 2], [i32; 2], String, f32)>);
 
 fn run_ocr(engine: &Mutex<Engine>, bytes: &[u8], opts: preprocess::PreOpts) -> Result<RawResult, String> {
-    let img = decode_bgr(bytes)?;
+    let dbg = std::env::var("OCR_DEBUG").is_ok();
+    let t0 = std::time::Instant::now();
+    let img = decode_rgb(bytes)?;
+    if dbg {
+        eprintln!("[dbg] decode ({}x{}): {:.3}s", img.w, img.h, t0.elapsed().as_secs_f64());
+    }
     // Preprocessing may resize/rotate the image; `transform` maps detected boxes
     // back to the ORIGINAL image coordinates so returned bounds stay aligned.
     let (img, transform) = if opts.any() {
@@ -275,9 +281,13 @@ fn run_ocr(engine: &Mutex<Engine>, bytes: &[u8], opts: preprocess::PreOpts) -> R
     };
     let mut eng = engine.lock().unwrap();
     let res = eng.run(&img).map_err(|e| e.to_string())?;
+    let tl = std::time::Instant::now();
     // Text/layout run in the (straightened, scaled) preprocessed space.
     let (text, bounds) = layout::extract_text_and_bounds(&res);
     let structured = layout::structured_text(&res);
+    if dbg {
+        eprintln!("[dbg] layout: {:.3}s", tl.elapsed().as_secs_f64());
+    }
     // Bounds are mapped back to original-image coordinates for the caller.
     let items = bounds
         .into_iter()
@@ -322,7 +332,9 @@ impl OcrEngine {
     /// Args:
     ///     model_size: "tiny" (default, bundled), "small" (bundled), or "medium"
     ///         (downloaded once and cached on first use).
-    ///     threads: ONNX Runtime intra-op threads. Defaults to physical cores.
+    ///     threads: ONNX Runtime intra-op threads. Defaults to physical cores
+    ///         for recognition and all logical cores for detection; an explicit
+    ///         value is used for both (treat it as a CPU budget).
     ///     rec_batch: recognition batch size (default 4).
     ///     det_max_side: cap on the detector's longer side (default 1600). Large
     ///         images are downscaled to this for detection only (recognition still

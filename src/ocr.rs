@@ -27,8 +27,9 @@ const REC_MAX_W: usize = 3200;
 pub const DEFAULT_REC_BATCH: usize = 4;
 /// Recognition batch budget: a batch grows until `count * max_rec_width` exceeds
 /// this, so narrow crops batch together while wide line-crops run nearly alone
-/// (avoiding wasted padding compute).
-pub const REC_BATCH_BUDGET: usize = 2400;
+/// (avoiding wasted padding compute). Tuned empirically: with one session per
+/// physical core, small batches (~1-2 average-width crops) minimise latency.
+pub const REC_BATCH_BUDGET: usize = 800;
 
 pub struct OcrResult {
     pub text: String,
@@ -48,8 +49,10 @@ pub struct Engine {
     det_max_side: i64,
 }
 
-/// BGR u8 image.
-pub struct ImageBgr {
+/// Interleaved RGB u8 image. The PP-OCR networks expect BGR channel *planes*
+/// (cv2.imread order); the flip happens at NCHW tensor-fill time (plane `c`
+/// reads interleaved channel `2 - c`), so no pixel-swap pass is ever needed.
+pub struct ImageRgb {
     pub w: usize,
     pub h: usize,
     pub data: Vec<u8>,
@@ -58,30 +61,46 @@ pub struct ImageBgr {
 impl Engine {
     /// Build an engine from in-memory ONNX model bytes (models are embedded in
     /// the library, so no files are needed at runtime).
+    #[allow(clippy::too_many_arguments)]
     pub fn from_memory(
         det_bytes: &[u8],
         rec_bytes: &[u8],
         char_dict: Vec<String>,
         threads: usize,
+        det_threads: usize,
         rec_batch: usize,
         box_thresh: f32,
         rec_pool: usize,
         det_max_side: i64,
     ) -> ort::Result<Self> {
-        let build = |bytes: &[u8], t: usize| -> ort::Result<Session> {
-            Session::builder()?
+        let mempat = std::env::var("OCR_MEMPAT").map(|v| v != "0").unwrap_or(false);
+        let prepack = std::env::var("OCR_PREPACK").map(|v| v != "0").unwrap_or(true);
+        let det_spin = std::env::var("OCR_DET_SPIN").map(|v| v != "0").unwrap_or(false);
+        let build = |bytes: &[u8], t: usize, spin: bool, pw: Option<&ort::session::builder::PrepackedWeights>| -> ort::Result<Session> {
+            let mut b = Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
-                .with_intra_threads(t.max(1))?
-                .commit_from_memory(bytes)
+                .with_memory_pattern(mempat)?
+                .with_intra_op_spinning(spin)?
+                .with_intra_threads(t.max(1))?;
+            if let Some(pw) = pw {
+                b = b.with_prepacked_weights(pw)?;
+            }
+            b.commit_from_memory(bytes)
         };
-        let det = build(det_bytes, threads)?;
+        // det spinning off: its (many) pool threads would otherwise keep
+        // spin-waiting after det.run() returns, stealing CPU from the rec
+        // workers that start right after.
+        let det = build(det_bytes, det_threads.max(1), det_spin, None)?;
         // Pool of rec sessions; split the threads across them so concurrent
-        // batches together saturate the cores.
+        // batches together saturate the cores. All pool sessions share one
+        // prepacked-weights container so the packed weight buffers exist once,
+        // not `pool` times (less memory, better cache reuse).
         let pool = rec_pool.clamp(1, threads.max(1));
         let per = (threads / pool).max(1);
+        let shared = ort::session::builder::PrepackedWeights::new();
         let mut rec = Vec::with_capacity(pool);
         for _ in 0..pool {
-            rec.push(build(rec_bytes, per)?);
+            rec.push(build(rec_bytes, per, true, prepack.then_some(&shared))?);
         }
         // CHARS = ["blank"] + dict + [" "]
         let mut chars = Vec::with_capacity(char_dict.len() + 2);
@@ -98,14 +117,14 @@ impl Engine {
         })
     }
 
-    pub fn run(&mut self, img: &ImageBgr) -> ort::Result<Vec<OcrResult>> {
+    pub fn run(&mut self, img: &ImageRgb) -> ort::Result<Vec<OcrResult>> {
         let dbg = std::env::var("OCR_DEBUG").is_ok();
         let t0 = std::time::Instant::now();
         // ---------- detection ----------
         use rayon::prelude::*;
         let (rw, rh) = det_resize_dims(img.w, img.h, self.det_max_side);
         let tpr = std::time::Instant::now();
-        let resized = resize_bilinear_bgr(&img.data, img.w, img.h, rw, rh);
+        let resized = resize_bilinear_rgb(&img.data, img.w, img.h, rw, rh);
         if dbg {
             eprintln!("[dbg]   det resize: {:.3}s", tpr.elapsed().as_secs_f64());
         }
@@ -128,8 +147,10 @@ impl Engine {
             .par_chunks_mut(plane)
             .enumerate()
             .for_each(|(c, ch)| {
+                // plane c is B,G,R -> interleaved RGB channel 2-c
+                let sc = 2 - c;
                 for px in 0..plane {
-                    ch[px] = resized[px * 3 + c] as f32 * alpha[c] + beta[c];
+                    ch[px] = resized[px * 3 + sc] as f32 * alpha[c] + beta[c];
                 }
             });
         if dbg {
@@ -137,17 +158,21 @@ impl Engine {
         }
         let tinf = std::time::Instant::now();
         let tensor = Tensor::from_array(([1usize, 3, rh, rw], input))?;
-        let (pred, ph, pw) = {
+        let box_thresh = self.box_thresh;
+        // post-process directly on the borrowed output tensor (the prob map is
+        // several MB; no need to copy it out)
+        let t1;
+        let boxes = {
             let outputs = self.det.run(ort::inputs!["x" => tensor])?;
             let (shape, pred) = outputs["fetch_name_0"].try_extract_tensor::<f32>()?;
-            (pred.to_vec(), shape[2] as usize, shape[3] as usize)
+            let (ph, pw) = (shape[2] as usize, shape[3] as usize);
+            if dbg {
+                eprintln!("[dbg]   det ORT infer: {:.3}s", tinf.elapsed().as_secs_f64());
+                eprintln!("[dbg] det total ({}x{}): {:.3}s", rw, rh, t0.elapsed().as_secs_f64());
+            }
+            t1 = std::time::Instant::now();
+            db_postprocess(pred, pw, ph, img.w, img.h, box_thresh)
         };
-        if dbg {
-            eprintln!("[dbg]   det ORT infer: {:.3}s", tinf.elapsed().as_secs_f64());
-            eprintln!("[dbg] det total ({}x{}): {:.3}s", rw, rh, t0.elapsed().as_secs_f64());
-        }
-        let t1 = std::time::Instant::now();
-        let boxes = db_postprocess(&pred, pw, ph, img.w, img.h, self.box_thresh);
         let boxes = sort_boxes(boxes);
         if dbg {
             eprintln!("[dbg] db_postprocess ({} boxes): {:.3}s", boxes.len(), t1.elapsed().as_secs_f64());
@@ -155,11 +180,11 @@ impl Engine {
         let t2 = std::time::Instant::now();
 
         // ---------- crops (parallel; independent per box) ----------
-        let cropped: Vec<Option<(ImageBgr, [cv::Pt; 4])>> = boxes
+        let cropped: Vec<Option<(ImageRgb, [cv::Pt; 4])>> = boxes
             .par_iter()
             .map(|b| crop_quad(img, b).filter(|c| c.w > 0 && c.h > 0).map(|c| (c, *b)))
             .collect();
-        let mut crops: Vec<ImageBgr> = Vec::with_capacity(boxes.len());
+        let mut crops: Vec<ImageRgb> = Vec::with_capacity(boxes.len());
         let mut kept_boxes: Vec<[cv::Pt; 4]> = Vec::with_capacity(boxes.len());
         for item in cropped.into_iter().flatten() {
             crops.push(item.0);
@@ -174,7 +199,7 @@ impl Engine {
         let t3 = std::time::Instant::now();
 
         // sort by rec-input width so a batch groups similar-width crops
-        let rec_w = |c: &ImageBgr| -> usize {
+        let rec_w = |c: &ImageRgb| -> usize {
             ((REC_H as f64 * c.w as f64 / c.h as f64).ceil() as usize).clamp(1, REC_MAX_W)
         };
         let rec_widths: Vec<usize> = crops.iter().map(rec_w).collect();
@@ -243,10 +268,12 @@ impl Engine {
 /// Run one recognition batch on a given session and CTC-decode it.
 fn rec_batch_run(
     sess: &mut Session,
-    crops: &[ImageBgr],
+    crops: &[ImageRgb],
     idxs: &[usize],
     chars: &[String],
 ) -> ort::Result<Vec<(String, f32)>> {
+    let dbg = std::env::var("OCR_DEBUG").is_ok();
+    let tp = std::time::Instant::now();
     // compute max_wh_ratio across batch
     let mut max_wh = 320.0 / 48.0;
     for &i in idxs {
@@ -275,28 +302,39 @@ fn rec_batch_run(
             let rw = (REC_H as f64 * ratio).ceil() as usize;
             rw.min(img_w).max(1)
         };
-        let small = resize_bilinear_bgr(&c.data, c.w, c.h, resized_w, REC_H);
+        let small = resize_bilinear_rgb(&c.data, c.w, c.h, resized_w, REC_H);
         let base = bi * 3 * plane;
         for y in 0..REC_H {
             for x in 0..resized_w {
                 let si = (y * resized_w + x) * 3;
                 for ch in 0..3 {
-                    let v = small[si + ch] as f32 / 255.0;
+                    // plane ch is B,G,R -> interleaved RGB channel 2-ch
+                    let v = small[si + 2 - ch] as f32 / 255.0;
                     let v = (v - 0.5) / 0.5;
                     data[base + ch * plane + y * img_w + x] = v;
                 }
             }
         }
     }
+    let prep_s = tp.elapsed().as_secs_f64();
+    let ti = std::time::Instant::now();
     let tensor = Tensor::from_array(([n, 3, REC_H, img_w], data))?;
-    let (preds, t, cls) = {
-        let outputs = sess.run(ort::inputs!["x" => tensor])?;
-        let (shape, preds) = outputs["fetch_name_0"].try_extract_tensor::<f32>()?;
-        (preds.to_vec(), shape[1] as usize, shape[2] as usize)
-    };
+    // decode straight from the borrowed output tensor (logits are several MB
+    // per batch; no need to copy them out)
+    let outputs = sess.run(ort::inputs!["x" => tensor])?;
+    let (shape, preds) = outputs["fetch_name_0"].try_extract_tensor::<f32>()?;
+    let (t, cls) = (shape[1] as usize, shape[2] as usize);
+    let infer_s = ti.elapsed().as_secs_f64();
+    let tc = std::time::Instant::now();
     let mut res = Vec::with_capacity(n);
     for b in 0..n {
         res.push(ctc_decode(chars, &preds[b * t * cls..(b + 1) * t * cls], t, cls));
+    }
+    if dbg {
+        eprintln!(
+            "[dbg]     rec batch n={n} w={img_w}: prep {prep_s:.3}s infer {infer_s:.3}s ctc {:.3}s",
+            tc.elapsed().as_secs_f64()
+        );
     }
     Ok(res)
 }
@@ -308,14 +346,20 @@ fn ctc_decode(chars: &[String], logits: &[f32], t: usize, cls: usize) -> (String
     let mut cnt = 0u32;
     for ti in 0..t {
         let row = &logits[ti * cls..(ti + 1) * cls];
-        let mut best = 0usize;
-        let mut bestv = row[0];
-        for (j, &v) in row.iter().enumerate() {
-            if v > bestv {
-                bestv = v;
-                best = j;
+        // two-pass argmax: a lane-wise max reduction (vectorizes; the naive
+        // index-tracking loop does not), then locate the first max
+        let mut lanes = [f32::NEG_INFINITY; 8];
+        let mut chunks = row.chunks_exact(8);
+        for ch in &mut chunks {
+            for (l, &v) in lanes.iter_mut().zip(ch) {
+                *l = l.max(v);
             }
         }
+        let mut bestv = lanes.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        for &v in chunks.remainder() {
+            bestv = bestv.max(v);
+        }
+        let best = row.iter().position(|&v| v >= bestv).unwrap_or(0);
         // remove duplicates + blank
         if best != last {
             if best != 0 {
@@ -374,10 +418,12 @@ fn det_resize_dims(w: usize, h: usize, max_side: i64) -> (usize, usize) {
     (rw as usize, rh as usize)
 }
 
-/// cv2 INTER_LINEAR-style bilinear resize for interleaved BGR u8.
-/// Parallel over output rows, with precomputed per-column x weights so the inner
-/// loop is cheap (f32 math).
-pub fn resize_bilinear_bgr(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
+/// cv2 INTER_LINEAR-style bilinear resize for interleaved RGB u8.
+/// Parallel over output rows for large outputs, with precomputed per-column x
+/// weights so the inner loop is cheap (f32 math). Small outputs (recognition
+/// line-crops) run sequentially: they are resized *inside* the parallel rec
+/// workers, where nested rayon splitting only adds scheduling overhead.
+pub fn resize_bilinear_rgb(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usize) -> Vec<u8> {
     use rayon::prelude::*;
     if sw == dw && sh == dh {
         return src.to_vec();
@@ -396,8 +442,7 @@ pub fn resize_bilinear_bgr(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usiz
         })
         .collect();
 
-    let mut out = vec![0u8; dw * dh * 3];
-    out.par_chunks_mut(dw * 3).enumerate().for_each(|(y, row)| {
+    let row_op = |y: usize, row: &mut [u8]| {
         let sy = ((y as f32 + 0.5) * scale_y - 0.5).max(0.0);
         let y0 = sy.floor();
         let ay = sy - y0;
@@ -417,7 +462,16 @@ pub fn resize_bilinear_bgr(src: &[u8], sw: usize, sh: usize, dw: usize, dh: usiz
                 row[o + c] = (top * (1.0 - ay) + bot * ay + 0.5) as u8;
             }
         }
-    });
+    };
+
+    let mut out = vec![0u8; dw * dh * 3];
+    if dw * dh >= 256 * 1024 {
+        out.par_chunks_mut(dw * 3).enumerate().for_each(|(y, row)| row_op(y, row));
+    } else {
+        for (y, row) in out.chunks_exact_mut(dw * 3).enumerate() {
+            row_op(y, row);
+        }
+    }
     out
 }
 
@@ -532,7 +586,7 @@ fn sort_boxes(mut boxes: Vec<[cv::Pt; 4]>) -> Vec<[cv::Pt; 4]> {
 }
 
 /// get_minarea_rect_crop + get_rotate_crop_image.
-fn crop_quad(img: &ImageBgr, quad: &[cv::Pt; 4]) -> Option<ImageBgr> {
+fn crop_quad(img: &ImageRgb, quad: &[cv::Pt; 4]) -> Option<ImageRgb> {
     // get_minarea_rect_crop: minAreaRect of the (already rectangular) quad, then order points.
     let (rect, _side) = cv::min_area_rect(quad);
     // order points like get_minarea_rect_crop: sort by x, pick a/b/c/d
@@ -548,13 +602,38 @@ fn crop_quad(img: &ImageBgr, quad: &[cv::Pt; 4]) -> Option<ImageBgr> {
     if cw == 0 || ch == 0 {
         return None;
     }
-    let crop = cv::warp_crop(&img.data, img.w, img.h, &ordered, cw, ch);
+    // Fast path: an axis-aligned rectangle on integer coordinates (the common
+    // case for clean scans — detected boxes are rounded to integers). The
+    // perspective transform then degenerates to an integer translation and the
+    // bilinear warp to an exact pixel copy, so copy rows directly.
+    let axis_aligned = ordered[0].1 == ordered[1].1
+        && ordered[1].0 == ordered[2].0
+        && ordered[2].1 == ordered[3].1
+        && ordered[3].0 == ordered[0].0
+        && ordered.iter().all(|p| p.0.fract() == 0.0 && p.1.fract() == 0.0)
+        && (ordered[1].0 - ordered[0].0) as usize == cw
+        && (ordered[3].1 - ordered[0].1) as usize == ch
+        && ordered[0].0 >= 0.0
+        && ordered[0].1 >= 0.0
+        && (ordered[0].0 as usize + cw) <= img.w
+        && (ordered[0].1 as usize + ch) <= img.h;
+    let crop = if axis_aligned {
+        let (x0, y0) = (ordered[0].0 as usize, ordered[0].1 as usize);
+        let mut out = vec![0u8; cw * ch * 3];
+        for (r, row) in out.chunks_exact_mut(cw * 3).enumerate() {
+            let s = ((y0 + r) * img.w + x0) * 3;
+            row.copy_from_slice(&img.data[s..s + cw * 3]);
+        }
+        out
+    } else {
+        cv::warp_crop(&img.data, img.w, img.h, &ordered, cw, ch)
+    };
     let (data, w, h) = if ch as f64 / cw as f64 >= 1.5 {
         cv::rot90_ccw(&crop, cw, ch)
     } else {
         (crop, cw, ch)
     };
-    Some(ImageBgr { w, h, data })
+    Some(ImageRgb { w, h, data })
 }
 
 #[cfg(test)]
@@ -564,7 +643,7 @@ mod tests {
     #[test]
     fn resize_identity() {
         let src: Vec<u8> = (0..(4 * 3 * 3)).map(|i| (i % 256) as u8).collect();
-        let out = resize_bilinear_bgr(&src, 4, 3, 4, 3);
+        let out = resize_bilinear_rgb(&src, 4, 3, 4, 3);
         assert_eq!(out, src);
     }
 
@@ -578,7 +657,7 @@ mod tests {
             px[1] = 100;
             px[2] = 200;
         }
-        let out = resize_bilinear_bgr(&src, w, h, 13, 9);
+        let out = resize_bilinear_rgb(&src, w, h, 13, 9);
         for px in out.chunks(3) {
             assert_eq!((px[0], px[1], px[2]), (30, 100, 200));
         }
@@ -587,7 +666,7 @@ mod tests {
     #[test]
     fn resize_downscale_dims() {
         let src = vec![128u8; 100 * 80 * 3];
-        let out = resize_bilinear_bgr(&src, 100, 80, 50, 40);
+        let out = resize_bilinear_rgb(&src, 100, 80, 50, 40);
         assert_eq!(out.len(), 50 * 40 * 3);
     }
 
@@ -625,6 +704,36 @@ mod tests {
         let (w2, h2) = det_resize_dims(900, 800, 1600);
         assert!((w2 as i64 - 900).abs() <= 32 && (h2 as i64 - 800).abs() <= 32);
         assert!(w2 % 32 == 0 && h2 % 32 == 0);
+    }
+
+    #[test]
+    fn axis_aligned_crop_matches_warp() {
+        // deterministic pseudo-random image
+        let (w, h) = (64, 40);
+        let data: Vec<u8> = (0..w * h * 3).map(|i| ((i * 31 + 7) % 256) as u8).collect();
+        let img = ImageRgb { w, h, data };
+        // axis-aligned integer quad (any corner order; crop_quad re-orders)
+        let quad = [(5.0, 8.0), (37.0, 8.0), (37.0, 20.0), (5.0, 20.0)];
+        let fast = crop_quad(&img, &quad).unwrap();
+        // reference: force the generic warp on the same ordered quad
+        let warped = cv::warp_crop(&img.data, w, h, &quad, 32, 12);
+        assert_eq!(fast.w, 32);
+        assert_eq!(fast.h, 12);
+        assert_eq!(fast.data, warped, "fast path must equal the perspective warp");
+    }
+
+    #[test]
+    fn ctc_argmax_first_max_wins_ties() {
+        // two equal maxima per row: index of the FIRST must win (matches the
+        // strict `>` scan it replaced)
+        let chars = vec!["blank".to_string(), "A".to_string(), "B".to_string(), "C".to_string()];
+        let rows = [
+            [0.1f32, 0.8, 0.8, 0.1], // tie A/B -> A
+            [0.1, 0.1, 0.9, 0.9],    // tie B/C -> B
+        ];
+        let logits: Vec<f32> = rows.iter().flatten().copied().collect();
+        let (text, _) = ctc_decode(&chars, &logits, 2, 4);
+        assert_eq!(text, "AB");
     }
 
     #[test]

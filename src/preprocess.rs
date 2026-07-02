@@ -6,7 +6,7 @@
 //!
 //! Everything is pure-Rust and parallelized with rayon to stay fast.
 
-use crate::ocr::{resize_bilinear_bgr, ImageBgr};
+use crate::ocr::{resize_bilinear_rgb, ImageRgb};
 use image::GrayImage;
 use rayon::prelude::*;
 
@@ -94,14 +94,14 @@ impl Transform {
     }
 }
 
-/// Apply the enabled preprocessing steps to a BGR image, in optimal order.
+/// Apply the enabled preprocessing steps to an RGB image, in optimal order.
 /// Returns the processed image and a transform mapping its coordinates back to
 /// the original image (so bounds stay aligned with the user's input).
-pub fn preprocess(img: ImageBgr, o: &PreOpts) -> (ImageBgr, Transform) {
+pub fn preprocess(img: ImageRgb, o: &PreOpts) -> (ImageRgb, Transform) {
     let (orig_w, orig_h) = (img.w, img.h);
     let mut img = img;
 
-    // 1) resize (still BGR / color)
+    // 1) resize (still color)
     if o.resize {
         img = resize_if_large(img, MAX_W, MAX_H);
     }
@@ -116,7 +116,7 @@ pub fn preprocess(img: ImageBgr, o: &PreOpts) -> (ImageBgr, Transform) {
     let dbg = std::env::var("OCR_DEBUG").is_ok();
     // 2..4 operate on grayscale
     let (w, h) = (img.w, img.h);
-    let mut gray = bgr_to_gray(&img.data, w, h);
+    let mut gray = rgb_to_gray(&img.data, w, h);
     let mut gw = w;
     let mut gh = h;
 
@@ -159,38 +159,38 @@ pub fn preprocess(img: ImageBgr, o: &PreOpts) -> (ImageBgr, Transform) {
     }
 
     (
-        ImageBgr {
+        ImageRgb {
             w: gw,
             h: gh,
-            data: gray_to_bgr(&gray),
+            data: gray_to_rgb(&gray),
         },
         transform,
     )
 }
 
-fn resize_if_large(img: ImageBgr, max_w: usize, max_h: usize) -> ImageBgr {
+fn resize_if_large(img: ImageRgb, max_w: usize, max_h: usize) -> ImageRgb {
     if img.w <= max_w && img.h <= max_h {
         return img;
     }
     let scale = (max_w as f64 / img.w as f64).min(max_h as f64 / img.h as f64);
     let nw = ((img.w as f64 * scale).round() as usize).max(1);
     let nh = ((img.h as f64 * scale).round() as usize).max(1);
-    let data = resize_bilinear_bgr(&img.data, img.w, img.h, nw, nh);
-    ImageBgr { w: nw, h: nh, data }
+    let data = resize_bilinear_rgb(&img.data, img.w, img.h, nw, nh);
+    ImageRgb { w: nw, h: nh, data }
 }
 
-fn bgr_to_gray(bgr: &[u8], w: usize, h: usize) -> Vec<u8> {
+fn rgb_to_gray(rgb: &[u8], w: usize, h: usize) -> Vec<u8> {
     let mut g = vec![0u8; w * h];
     g.par_iter_mut().enumerate().for_each(|(i, px)| {
-        let b = bgr[i * 3] as f32;
-        let gr = bgr[i * 3 + 1] as f32;
-        let r = bgr[i * 3 + 2] as f32;
+        let r = rgb[i * 3] as f32;
+        let gr = rgb[i * 3 + 1] as f32;
+        let b = rgb[i * 3 + 2] as f32;
         *px = (0.114 * b + 0.587 * gr + 0.299 * r).round().clamp(0.0, 255.0) as u8;
     });
     g
 }
 
-fn gray_to_bgr(gray: &[u8]) -> Vec<u8> {
+fn gray_to_rgb(gray: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; gray.len() * 3];
     out.par_chunks_mut(3).zip(gray.par_iter()).for_each(|(px, &g)| {
         px[0] = g;
