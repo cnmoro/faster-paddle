@@ -19,6 +19,8 @@ only and did not change inference performance.
 information. An integration test verifies 1.28.0 is actually linked. CI now
 installs and tests each Linux x86-64/ARM64, Windows, and macOS ARM64 wheel before
 upload, and all platforms must pass before publication.
+Linux ARM64 explicitly links GCC's outlined atomic helpers required by the
+new native archive; the installed-wheel tests caught this import-time issue.
 
 Local validation: 23 Rust tests and 16 installed-wheel integration tests passed.
 The published v1.0.3 wheel and locally built v1.0.4 wheel were compared on the

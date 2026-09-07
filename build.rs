@@ -22,4 +22,15 @@ fn main() {
         println!("cargo:rustc-link-arg=-lstdc++");
         println!("cargo:rustc-link-arg=-Wl,--pop-state");
     }
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if target_os == "linux" && target_arch == "aarch64" && target_env == "gnu" {
+        // ORT's ARM64 archives call GCC's outlined atomic helpers. These are
+        // provided by libgcc.a, not libgcc_s.so. Rust normally links only the
+        // latter, leaving e.g. __aarch64_swp4_acq_rel unresolved at Python import.
+        // Resolve them after the ORT and C++ archives have introduced references.
+        println!("cargo:rustc-link-arg=-Wl,--push-state,-Bstatic");
+        println!("cargo:rustc-link-arg=-lgcc");
+        println!("cargo:rustc-link-arg=-Wl,--pop-state");
+    }
 }
