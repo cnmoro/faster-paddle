@@ -4,8 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "faster-paddle"
-version = "1.0.1"
-description = "Fast CPU OCR — PaddleOCR PP-OCRv6 tiny (lightweight), reimplemented in Rust + ONNX Runtime. ~7x faster than PaddlePaddle, self-contained wheels with models bundled."
+version = "1.0.2"
+description = "Fast CPU OCR — PaddleOCR PP-OCRv6 tiny/small/medium in Rust + ONNX Runtime, with hardware-aware scheduling and multi-image recognition."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
@@ -30,11 +30,5 @@ Repository = "https://github.com/cnmoro/faster-paddle"
 module-name = "faster_paddle"
 features = ["pyo3/extension-module"]
 strip = true
-include = [
-    "models/tiny/det.onnx",
-    "models/tiny/rec.onnx",
-    "models/tiny/char_dict.json",
-    "models/small/det.onnx",
-    "models/small/rec.onnx",
-    "models/small/char_dict.json",
-]
+# Model bytes are embedded in the extension. Cargo.toml includes the source
+# assets in sdists; duplicating them as wheel data would inflate downloads.

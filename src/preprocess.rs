@@ -50,9 +50,6 @@ struct DeskewInv {
 }
 
 impl Transform {
-    pub fn identity() -> Self {
-        Transform { sx: 1.0, sy: 1.0, deskew: None }
-    }
 
     fn map_point(&self, x: f64, y: f64) -> (f64, f64) {
         let (mut px, mut py) = (x, y);

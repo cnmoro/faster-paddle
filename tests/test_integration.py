@@ -111,7 +111,7 @@ def test_prepare_returns_image_bytes():
     pb = eng.prepare(data, binarize=True)
     im = Image.open(io.BytesIO(pb))
     assert im.mode == "L"
-    assert set(im.convert("L").get_flattened_data()) <= {0, 255}
+    assert set(im.convert("L").tobytes()) <= {0, 255}
 
     # deskew expands the canvas of a rotated input
     rot = Image.open(FIXTURE).convert("RGB").rotate(8, expand=True, fillcolor=(255, 255, 255))
@@ -125,7 +125,9 @@ def test_prepare_returns_image_bytes():
     assert "INFRAESTRUTURA" in norm
 
 
-def test_speed_regression_guard():
+def test_latency_smoke():
+    # Gross smoke limit only; compare benchmark JSONL on the same hardware for
+    # meaningful performance regression measurements.
     data = _big()
     eng = faster_paddle.OcrEngine()
     eng.ocr(data)  # warm up
@@ -136,6 +138,113 @@ def test_speed_regression_guard():
         times.append(time.time() - t)
     median = sorted(times)[len(times) // 2]
     assert median < 6.0, f"OCR too slow: {median:.2f}s"
+
+
+
+def test_batch_matches_single_and_preserves_order():
+    blank = io.BytesIO()
+    Image.new("RGB", (300, 180), "white").save(blank, format="PNG")
+    crop = Image.open(FIXTURE).crop((0, 0, 320, 240))
+    cropped = io.BytesIO()
+    crop.save(cropped, format="PNG")
+    inputs = [_small(), blank.getvalue(), cropped.getvalue(), _small(), blank.getvalue()]
+    for size in ("tiny", "small"):
+        eng = faster_paddle.OcrEngine(model_size=size, threads=2)
+        expected = [eng.ocr(x) for x in inputs]
+        assert eng.ocr_batch(inputs, batch_size=3) == expected
+        assert eng.ocr_batch(inputs[:2], batch_size=1) == expected[:2]
+        assert eng.ocr_batch([]) == []
+        # Exercise reused input buffers across shapes and then a single call.
+        assert eng.ocr(inputs[0]) == expected[0]
+    assert faster_paddle.ocr_batch([]) == []
+
+
+def test_batch_preprocessing_maps_each_image_separately():
+    eng = faster_paddle.OcrEngine(threads=2)
+    data = [_small(), _big()]
+    expected = [eng.ocr(b, resize=True) for b in data]
+    assert eng.ocr_batch(data, resize=True) == expected
+
+
+def test_invalid_options_and_batch_errors():
+    import pytest
+    for kw in ({"threads": 0}, {"rec_batch": 0}, {"det_max_side": 16},
+               {"det_min_side": -1}, {"rec_min_width": 32}):
+        with pytest.raises(ValueError):
+            faster_paddle.OcrEngine(**kw)
+    eng = faster_paddle.OcrEngine(threads=2)
+    with pytest.raises(ValueError):
+        eng.ocr_batch([], batch_size=0)
+    with pytest.raises(ValueError):
+        faster_paddle.ocr_batch([], batch_size=0)
+    with pytest.raises(RuntimeError, match="image 1"):
+        eng.ocr_batch([_small(), b"invalid"], batch_size=1)
+    assert eng.ocr(_small())["bounds"]  # an error must not poison the engine
+
+
+def test_resolved_cpu_budget_and_batch_cap():
+    from unittest.mock import patch
+    with patch.dict(os.environ, {"REC_POOL": "100", "OCR_DET_THREADS": "100", "RAYON_NUM_THREADS": "100"}):
+        eng = faster_paddle.OcrEngine(threads=2, rec_batch=3)
+        cfg = eng.config
+        assert cfg["threads"] == 2
+        assert cfg["det_threads"] <= 2
+        assert cfg["rec_workers"] * cfg["rec_threads"] <= 2
+        assert cfg["rayon_threads"] <= 2
+        assert cfg["rec_batch"] == 3
+    with patch.dict(os.environ, {"OCR_THREADS": "1"}):
+        assert faster_paddle.OcrEngine().config["threads"] == 1
+
+
+def test_affinity_is_respected():
+    if not hasattr(os, "sched_setaffinity"):
+        return
+    import subprocess
+    import sys
+    code = """
+import os
+os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})
+import faster_paddle
+c = faster_paddle.OcrEngine().config
+assert c['threads'] == c['det_threads'] == c['rec_workers'] == c['rayon_threads'] == 1, c
+"""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("OCR_", "REC_", "RAYON_"))}
+    subprocess.run([sys.executable, "-c", code], env=env, check=True, timeout=60)
+
+
+def test_concurrent_calls_are_safe():
+    from concurrent.futures import ThreadPoolExecutor
+    eng = faster_paddle.OcrEngine(threads=2)
+    image = _small()
+    expected = eng.ocr(image)
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(eng.ocr, image), pool.submit(eng.ocr_batch, [image, image]),
+                   pool.submit(lambda: eng.config)]
+        assert futures[0].result(timeout=60) == expected
+        assert futures[1].result(timeout=60) == [expected, expected]
+        assert futures[2].result(timeout=60)["threads"] == 2
+
+
+def test_short_labels_with_model_specific_padding():
+    from collections import Counter
+    data = open(os.path.join(HERE, "fixtures", "labels.png"), "rb").read()
+    labels = "A B C X Y Z 1 2 3 4 5 6 7 8 9 0 RF RE OK ID Yes No SIM NAO CEP ZIP ABC 123 USD EUR R$ 42"
+    for size, width in (("tiny", 64), ("small", 96)):
+        eng = faster_paddle.OcrEngine(model_size=size, threads=2)
+        assert eng.config["rec_min_width"] == width
+        assert Counter(eng.ocr(data)["text"].split()) == Counter(labels.split())
+
+
+def test_sparse_wide_jobs_match_batch_text_and_boxes():
+    data = open(os.path.join(HERE, "fixtures", "long-line.png"), "rb").read()
+    signature = lambda r: [(b["topLeftCoord"], b["bottomRightCoord"], b["text"]) for b in r["bounds"].values()]
+    for size in ("tiny", "small"):
+        eng = faster_paddle.OcrEngine(model_size=size, threads=4)
+        expected = signature(eng.ocr(data))
+        assert expected
+        assert list(map(signature, eng.ocr_batch([data] * 3))) == [expected] * 3
+        cfg = eng.config
+        assert cfg["wide_rec_workers"] * cfg["wide_rec_threads"] <= cfg["threads"]
 
 
 if __name__ == "__main__":

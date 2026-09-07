@@ -6,7 +6,11 @@ pub type Pt = (f64, f64);
 /// Andrew's monotone chain convex hull. Returns hull points CCW.
 pub fn convex_hull(points: &[Pt]) -> Vec<Pt> {
     let mut pts: Vec<Pt> = points.to_vec();
-    pts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap().then(a.1.partial_cmp(&b.1).unwrap()));
+    pts.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap()
+            .then(a.1.partial_cmp(&b.1).unwrap())
+    });
     pts.dedup();
     let n = pts.len();
     if n < 3 {
@@ -36,7 +40,10 @@ pub fn convex_hull(points: &[Pt]) -> Vec<Pt> {
 /// Minimum-area enclosing rectangle via rotating calipers over the convex hull.
 /// Returns the 4 corner points and the shorter side length.
 pub fn min_area_rect(points: &[Pt]) -> ([Pt; 4], f64) {
-    let hull = convex_hull(points);
+    rect_from_hull(&convex_hull(points), true)
+}
+
+fn rect_from_hull(hull: &[Pt], calipers: bool) -> ([Pt; 4], f64) {
     if hull.is_empty() {
         return ([(0.0, 0.0); 4], 0.0);
     }
@@ -51,6 +58,7 @@ pub fn min_area_rect(points: &[Pt]) -> ([Pt; 4], f64) {
     let n = hull.len();
     let mut best_area = f64::INFINITY;
     let mut best: ([Pt; 4], f64) = ([(0.0, 0.0); 4], 0.0);
+    let mut supports = [0usize; 4];
     for i in 0..n {
         let p0 = hull[i];
         let p1 = hull[(i + 1) % n];
@@ -67,13 +75,42 @@ pub fn min_area_rect(points: &[Pt]) -> ([Pt; 4], f64) {
         let ny = ex;
         let (mut min_u, mut max_u) = (f64::INFINITY, f64::NEG_INFINITY);
         let (mut min_v, mut max_v) = (f64::INFINITY, f64::NEG_INFINITY);
-        for &p in &hull {
-            let u = p.0 * ex + p.1 * ey;
-            let v = p.0 * nx + p.1 * ny;
-            min_u = min_u.min(u);
-            max_u = max_u.max(u);
-            min_v = min_v.min(v);
-            max_v = max_v.max(v);
+        if calipers && n > 16 {
+            let axes = [(ex, ey), (-ex, -ey), (nx, ny), (-nx, -ny)];
+            let mut extrema = [0.0; 4];
+            for (k, (ax, ay)) in axes.into_iter().enumerate() {
+                let projection = |j: usize| hull[j].0 * ax + hull[j].1 * ay;
+                if i == 0 {
+                    supports[k] = (0..n)
+                        .max_by(|&a, &b| projection(a).total_cmp(&projection(b)))
+                        .unwrap();
+                } else {
+                    // A convex CCW hull's support advances monotonically as
+                    // its edge direction rotates, O(h) over the whole sweep.
+                    for _ in 0..n {
+                        let next = (supports[k] + 1) % n;
+                        if projection(next) <= projection(supports[k]) {
+                            break;
+                        }
+                        supports[k] = next;
+                    }
+                }
+                extrema[k] = projection(supports[k]);
+            }
+            max_u = extrema[0];
+            min_u = -extrema[1];
+            max_v = extrema[2];
+            min_v = -extrema[3];
+        } else {
+            // For tiny hulls the simple loop costs less than caliper setup.
+            for &p in hull {
+                let u = p.0 * ex + p.1 * ey;
+                let v = p.0 * nx + p.1 * ny;
+                min_u = min_u.min(u);
+                max_u = max_u.max(u);
+                min_v = min_v.min(v);
+                max_v = max_v.max(v);
+            }
         }
         let w = max_u - min_u;
         let h = max_v - min_v;
@@ -152,32 +189,39 @@ pub fn unclip_rect(box4: &[Pt; 4], dist: f64) -> [Pt; 4] {
 pub fn box_score_fast(pred: &[f32], w: usize, h: usize, box4: &[Pt; 4]) -> f32 {
     let xs = [box4[0].0, box4[1].0, box4[2].0, box4[3].0];
     let ys = [box4[0].1, box4[1].1, box4[2].1, box4[3].1];
-    let xmin = (xs.iter().cloned().fold(f64::INFINITY, f64::min).floor() as i64).clamp(0, w as i64 - 1) as usize;
-    let xmax = (xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max).ceil() as i64).clamp(0, w as i64 - 1) as usize;
-    let ymin = (ys.iter().cloned().fold(f64::INFINITY, f64::min).floor() as i64).clamp(0, h as i64 - 1) as usize;
-    let ymax = (ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max).ceil() as i64).clamp(0, h as i64 - 1) as usize;
+    let xmin = (xs.iter().cloned().fold(f64::INFINITY, f64::min).floor() as i64)
+        .clamp(0, w as i64 - 1) as usize;
+    let xmax = (xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max).ceil() as i64)
+        .clamp(0, w as i64 - 1) as usize;
+    let ymin = (ys.iter().cloned().fold(f64::INFINITY, f64::min).floor() as i64)
+        .clamp(0, h as i64 - 1) as usize;
+    let ymax = (ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max).ceil() as i64)
+        .clamp(0, h as i64 - 1) as usize;
     if xmax < xmin || ymax < ymin {
         return 0.0;
     }
     let bw = xmax - xmin + 1;
     let bh = ymax - ymin + 1;
     // local polygon
-    let poly: Vec<Pt> = box4.iter().map(|p| (p.0 - xmin as f64, p.1 - ymin as f64)).collect();
+    let poly = box4.map(|p| (p.0 - xmin as f64, p.1 - ymin as f64));
     let mut sum = 0.0f64;
     let mut cnt = 0u64;
     // scanline fill
     for row in 0..bh {
         let yc = row as f64 + 0.5; // pixel center; matches cv2 fillPoly coverage closely
-        let mut xints: Vec<f64> = Vec::with_capacity(4);
+        let mut intersections = [0.0; 4];
+        let mut count = 0;
         let m = poly.len();
         for i in 0..m {
             let (x1, y1) = poly[i];
             let (x2, y2) = poly[(i + 1) % m];
             if (y1 <= yc && y2 > yc) || (y2 <= yc && y1 > yc) {
                 let t = (yc - y1) / (y2 - y1);
-                xints.push(x1 + t * (x2 - x1));
+                intersections[count] = x1 + t * (x2 - x1);
+                count += 1;
             }
         }
+        let xints = &mut intersections[..count];
         if xints.len() < 2 {
             continue;
         }
@@ -253,7 +297,14 @@ fn get_perspective(src: &[Pt; 4], dst: &[Pt; 4]) -> [f64; 9] {
 /// get_rotate_crop_image (perspective transform). Bilinear is used instead of
 /// cv2's INTER_CUBIC: it is faster and yields identical recognition fidelity
 /// here (the residual diff vs paddle is ONNXRuntime-vs-paddle numerics).
-pub fn warp_crop(src: &[u8], sw: usize, sh: usize, quad: &[Pt; 4], dst_w: usize, dst_h: usize) -> Vec<u8> {
+pub fn warp_crop(
+    src: &[u8],
+    sw: usize,
+    sh: usize,
+    quad: &[Pt; 4],
+    dst_w: usize,
+    dst_h: usize,
+) -> Vec<u8> {
     let dst_pts: [Pt; 4] = [
         (0.0, 0.0),
         (dst_w as f64, 0.0),
@@ -316,6 +367,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn calipers_match_exhaustive_rectangles() {
+        for n in [17, 31, 64, 127] {
+            for seed in 0..40 {
+                let points: Vec<Pt> = (0..n)
+                    .map(|i| {
+                        let a = i as f64 * std::f64::consts::TAU / n as f64 + seed as f64 * 0.03;
+                        (
+                            1000.0 + (20 + seed) as f64 * a.cos(),
+                            -300.0 + 17.0 * a.sin(),
+                        )
+                    })
+                    .collect();
+                let hull = convex_hull(&points);
+                let (fast, side) = rect_from_hull(&hull, true);
+                let (reference, ref_side) = rect_from_hull(&hull, false);
+                assert!((poly_area(&fast) - poly_area(&reference)).abs() < 1e-7);
+                assert!((side - ref_side).abs() < 1e-8);
+            }
+        }
+    }
+
+    #[test]
     fn convex_hull_square() {
         let pts = vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0), (0.5, 0.5)];
         let hull = convex_hull(&pts);
@@ -332,7 +405,10 @@ mod tests {
             }
         }
         let (_box, side) = min_area_rect(&pts);
-        assert!((side - 4.0).abs() < 1e-6, "short side should be 4, got {side}");
+        assert!(
+            (side - 4.0).abs() < 1e-6,
+            "short side should be 4, got {side}"
+        );
     }
 
     #[test]

@@ -1,0 +1,434 @@
+INIT tiny 0.1084282679998978
+[dbg] decode (804x505): 0.001s
+[dbg]   det resize: 0.005s
+[dbg]   det normalize: 0.002s
+[dbg]   det ORT infer: 0.084s
+[dbg] det total (1184x736): 0.091s
+[dbg] db_postprocess (140 boxes): 0.010s
+[dbg] crops (140): 0.002s
+[dbg]     rec batch n=5 w=320: prep 0.001s infer 0.021s ctc 0.000s
+[dbg]     rec batch n=6 w=320: prep 0.000s infer 0.025s ctc 0.001s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=473: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.010s ctc 0.000s
+[dbg]     rec batch n=11 w=320: prep 0.001s infer 0.037s ctc 0.001s
+[dbg]     rec batch n=10 w=320: prep 0.001s infer 0.036s ctc 0.002s
+[dbg]     rec batch n=1 w=845: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=10 w=320: prep 0.001s infer 0.040s ctc 0.001s
+[dbg]     rec batch n=1 w=439: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=9 w=320: prep 0.001s infer 0.047s ctc 0.000s
+[dbg]     rec batch n=1 w=830: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=413: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=416: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=2 w=372: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=638: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=418: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=1 w=668: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=604: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=16 w=320: prep 0.001s infer 0.061s ctc 0.001s
+[dbg]     rec batch n=1 w=749: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=14 w=320: prep 0.001s infer 0.062s ctc 0.001s
+[dbg]     rec batch n=1 w=1067: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.010s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=1 w=1156: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1160: prep 0.001s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=1261: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=516: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=2 w=349: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1192: prep 0.001s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=997: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=584: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1067: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=1152: prep 0.000s infer 0.004s ctc 0.000s
+[dbg] rec (140 crops): 0.090s
+[dbg] layout: 0.000s
+RUN tiny 0 0.19426197700022385 140
+[dbg] decode (804x505): 0.001s
+[dbg]   det resize: 0.005s
+[dbg]   det normalize: 0.002s
+[dbg]   det ORT infer: 0.078s
+[dbg] det total (1184x736): 0.085s
+[dbg] db_postprocess (140 boxes): 0.013s
+[dbg] crops (140): 0.002s
+[dbg]     rec batch n=6 w=320: prep 0.000s infer 0.012s ctc 0.000s
+[dbg]     rec batch n=5 w=320: prep 0.000s infer 0.016s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=439: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=473: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=9 w=320: prep 0.001s infer 0.032s ctc 0.001s
+[dbg]     rec batch n=10 w=320: prep 0.001s infer 0.032s ctc 0.003s
+[dbg]     rec batch n=1 w=830: prep 0.001s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=845: prep 0.000s infer 0.009s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.001s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=418: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=11 w=320: prep 0.001s infer 0.045s ctc 0.002s
+[dbg]     rec batch n=10 w=320: prep 0.001s infer 0.046s ctc 0.002s
+[dbg]     rec batch n=16 w=320: prep 0.002s infer 0.048s ctc 0.001s
+[dbg]     rec batch n=1 w=413: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=749: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=638: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.012s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=516: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=2 w=372: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=416: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=14 w=320: prep 0.001s infer 0.061s ctc 0.001s
+[dbg]     rec batch n=1 w=997: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=668: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=604: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1261: prep 0.000s infer 0.010s ctc 0.000s
+[dbg]     rec batch n=2 w=349: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=1 w=1160: prep 0.001s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=584: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=1 w=1067: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=1192: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=1067: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1156: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=1152: prep 0.000s infer 0.004s ctc 0.000s
+[dbg] rec (140 crops): 0.085s
+[dbg] layout: 0.000s
+RUN tiny 1 0.1866186629999902 140
+[dbg] decode (804x505): 0.001s
+[dbg]   det resize: 0.003s
+[dbg]   det normalize: 0.001s
+[dbg]   det ORT infer: 0.079s
+[dbg] det total (1184x736): 0.083s
+[dbg] db_postprocess (140 boxes): 0.018s
+[dbg] crops (140): 0.002s
+[dbg]     rec batch n=5 w=320: prep 0.000s infer 0.016s ctc 0.001s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=6 w=320: prep 0.000s infer 0.027s ctc 0.000s
+[dbg]     rec batch n=1 w=473: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=14 w=320: prep 0.000s infer 0.040s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.014s ctc 0.000s
+[dbg]     rec batch n=9 w=320: prep 0.000s infer 0.040s ctc 0.002s
+[dbg]     rec batch n=10 w=320: prep 0.000s infer 0.042s ctc 0.002s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=845: prep 0.001s infer 0.013s ctc 0.000s
+[dbg]     rec batch n=2 w=349: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=1 w=439: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=584: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.010s ctc 0.001s
+[dbg]     rec batch n=11 w=320: prep 0.000s infer 0.053s ctc 0.002s
+[dbg]     rec batch n=1 w=830: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=413: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=10 w=320: prep 0.000s infer 0.058s ctc 0.001s
+[dbg]     rec batch n=1 w=418: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=1067: prep 0.001s infer 0.012s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.016s ctc 0.000s
+[dbg]     rec batch n=1 w=638: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=2 w=372: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=749: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=604: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=1 w=416: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=1152: prep 0.001s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=1067: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=668: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=1261: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=16 w=320: prep 0.000s infer 0.077s ctc 0.001s
+[dbg]     rec batch n=1 w=1156: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=1160: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=1 w=1192: prep 0.001s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=516: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=1 w=997: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.004s ctc 0.000s
+[dbg] rec (140 crops): 0.097s
+[dbg] layout: 0.000s
+RUN tiny 2 0.20159469700001864 140
+[dbg] decode (804x505): 0.001s
+[dbg]   det resize: 0.003s
+[dbg]   det normalize: 0.001s
+[dbg]   det ORT infer: 0.080s
+[dbg] det total (1184x736): 0.084s
+[dbg] db_postprocess (140 boxes): 0.007s
+[dbg] crops (140): 0.004s
+[dbg]     rec batch n=5 w=320: prep 0.001s infer 0.016s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=6 w=320: prep 0.001s infer 0.019s ctc 0.001s
+[dbg]     rec batch n=1 w=473: prep 0.000s infer 0.002s ctc 0.000s
+[dbg]     rec batch n=10 w=320: prep 0.000s infer 0.022s ctc 0.001s
+[dbg]     rec batch n=1 w=845: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.005s ctc 0.000s
+[dbg]     rec batch n=1 w=439: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=413: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=830: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.014s ctc 0.000s
+[dbg]     rec batch n=9 w=320: prep 0.001s infer 0.038s ctc 0.002s
+[dbg]     rec batch n=10 w=320: prep 0.000s infer 0.039s ctc 0.002s
+[dbg]     rec batch n=1 w=638: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=416: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.011s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.012s ctc 0.000s
+[dbg]     rec batch n=11 w=320: prep 0.000s infer 0.052s ctc 0.001s
+[dbg]     rec batch n=1 w=668: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.000s infer 0.010s ctc 0.000s
+[dbg]     rec batch n=1 w=418: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=16 w=320: prep 0.000s infer 0.060s ctc 0.001s
+[dbg]     rec batch n=14 w=320: prep 0.000s infer 0.063s ctc 0.001s
+[dbg]     rec batch n=1 w=1160: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.010s ctc 0.000s
+[dbg]     rec batch n=1 w=749: prep 0.001s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=2 w=372: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=1 w=1192: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=604: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1070: prep 0.001s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=516: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=2 w=349: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1067: prep 0.001s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=584: prep 0.000s infer 0.003s ctc 0.000s
+[dbg]     rec batch n=1 w=997: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1067: prep 0.000s infer 0.004s ctc 0.000s
+[dbg]     rec batch n=1 w=1261: prep 0.001s infer 0.010s ctc 0.000s
+[dbg]     rec batch n=1 w=1156: prep 0.001s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.006s ctc 0.000s
+[dbg]     rec batch n=1 w=1152: prep 0.000s infer 0.005s ctc 0.000s
+[dbg] rec (140 crops): 0.091s
+[dbg] layout: 0.000s
+RUN tiny 3 0.18639346200006912 140
+INIT small 0.2780461919996924
+[dbg] decode (804x505): 0.001s
+[dbg]   det resize: 0.003s
+[dbg]   det normalize: 0.002s
+[dbg]   det ORT infer: 0.123s
+[dbg] det total (1184x736): 0.128s
+[dbg] db_postprocess (97 boxes): 0.010s
+[dbg] crops (97): 0.002s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.060s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.071s ctc 0.001s
+[dbg]     rec batch n=1 w=406: prep 0.000s infer 0.015s ctc 0.001s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.078s ctc 0.002s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.086s ctc 0.000s
+[dbg]     rec batch n=1 w=598: prep 0.001s infer 0.012s ctc 0.000s
+[dbg]     rec batch n=5 w=320: prep 0.000s infer 0.094s ctc 0.002s
+[dbg]     rec batch n=1 w=418: prep 0.000s infer 0.023s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.025s ctc 0.001s
+[dbg]     rec batch n=2 w=347: prep 0.000s infer 0.020s ctc 0.001s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.018s ctc 0.000s
+[dbg]     rec batch n=1 w=612: prep 0.000s infer 0.031s ctc 0.001s
+[dbg]     rec batch n=1 w=544: prep 0.000s infer 0.024s ctc 0.000s
+[dbg]     rec batch n=1 w=516: prep 0.000s infer 0.027s ctc 0.000s
+[dbg]     rec batch n=1 w=505: prep 0.000s infer 0.020s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.049s ctc 0.003s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.040s ctc 0.002s
+[dbg]     rec batch n=1 w=885: prep 0.000s infer 0.041s ctc 0.001s
+[dbg]     rec batch n=11 w=320: prep 0.000s infer 0.174s ctc 0.005s
+[dbg]     rec batch n=1 w=1259: prep 0.000s infer 0.052s ctc 0.001s
+[dbg]     rec batch n=8 w=320: prep 0.000s infer 0.195s ctc 0.005s
+[dbg]     rec batch n=1 w=1078: prep 0.001s infer 0.075s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.073s ctc 0.002s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.039s ctc 0.002s
+[dbg]     rec batch n=1 w=440: prep 0.000s infer 0.012s ctc 0.000s
+[dbg]     rec batch n=1 w=1180: prep 0.001s infer 0.067s ctc 0.001s
+[dbg]     rec batch n=1 w=1256: prep 0.000s infer 0.071s ctc 0.002s
+[dbg]     rec batch n=1 w=720: prep 0.000s infer 0.019s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.001s infer 0.053s ctc 0.001s
+[dbg]     rec batch n=1 w=443: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=1256: prep 0.001s infer 0.058s ctc 0.001s
+[dbg]     rec batch n=1 w=1262: prep 0.000s infer 0.072s ctc 0.001s
+[dbg]     rec batch n=1 w=841: prep 0.000s infer 0.020s ctc 0.001s
+[dbg]     rec batch n=1 w=1172: prep 0.000s infer 0.031s ctc 0.000s
+[dbg]     rec batch n=1 w=1176: prep 0.001s infer 0.025s ctc 0.001s
+[dbg]     rec batch n=1 w=1281: prep 0.000s infer 0.027s ctc 0.001s
+[dbg]     rec batch n=16 w=320: prep 0.000s infer 0.315s ctc 0.002s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.016s ctc 0.000s
+[dbg]     rec batch n=1 w=427: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=692: prep 0.000s infer 0.011s ctc 0.000s
+[dbg]     rec batch n=1 w=1092: prep 0.000s infer 0.017s ctc 0.000s
+[dbg]     rec batch n=1 w=1265: prep 0.000s infer 0.021s ctc 0.000s
+[dbg] rec (97 crops): 0.392s
+[dbg] layout: 0.000s
+RUN small 0 0.5340702979997332 97
+[dbg] decode (804x505): 0.001s
+[dbg]   det resize: 0.004s
+[dbg]   det normalize: 0.001s
+[dbg]   det ORT infer: 0.118s
+[dbg] det total (1184x736): 0.122s
+[dbg] db_postprocess (97 boxes): 0.010s
+[dbg] crops (97): 0.003s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.028s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.052s ctc 0.001s
+[dbg]     rec batch n=1 w=406: prep 0.000s infer 0.033s ctc 0.001s
+[dbg]     rec batch n=1 w=418: prep 0.000s infer 0.017s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.071s ctc 0.003s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.077s ctc 0.003s
+[dbg]     rec batch n=1 w=598: prep 0.001s infer 0.029s ctc 0.002s
+[dbg]     rec batch n=1 w=612: prep 0.000s infer 0.024s ctc 0.000s
+[dbg]     rec batch n=5 w=320: prep 0.001s infer 0.101s ctc 0.001s
+[dbg]     rec batch n=11 w=320: prep 0.000s infer 0.095s ctc 0.008s
+[dbg]     rec batch n=2 w=320: prep 0.001s infer 0.039s ctc 0.001s
+[dbg]     rec batch n=2 w=347: prep 0.001s infer 0.036s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.025s ctc 0.001s
+[dbg]     rec batch n=1 w=516: prep 0.000s infer 0.025s ctc 0.001s
+[dbg]     rec batch n=8 w=320: prep 0.000s infer 0.140s ctc 0.004s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.052s ctc 0.001s
+[dbg]     rec batch n=1 w=544: prep 0.000s infer 0.032s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.001s infer 0.046s ctc 0.002s
+[dbg]     rec batch n=1 w=1078: prep 0.000s infer 0.058s ctc 0.002s
+[dbg]     rec batch n=1 w=505: prep 0.000s infer 0.029s ctc 0.000s
+[dbg]     rec batch n=1 w=440: prep 0.000s infer 0.023s ctc 0.000s
+[dbg]     rec batch n=1 w=885: prep 0.000s infer 0.039s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.055s ctc 0.002s
+[dbg]     rec batch n=1 w=1074: prep 0.001s infer 0.061s ctc 0.002s
+[dbg]     rec batch n=1 w=1074: prep 0.001s infer 0.056s ctc 0.001s
+[dbg]     rec batch n=1 w=720: prep 0.000s infer 0.032s ctc 0.002s
+[dbg]     rec batch n=1 w=1262: prep 0.001s infer 0.066s ctc 0.000s
+[dbg]     rec batch n=1 w=443: prep 0.000s infer 0.022s ctc 0.001s
+[dbg]     rec batch n=1 w=1180: prep 0.000s infer 0.029s ctc 0.001s
+[dbg]     rec batch n=1 w=1259: prep 0.000s infer 0.085s ctc 0.001s
+[dbg]     rec batch n=1 w=1172: prep 0.001s infer 0.039s ctc 0.001s
+[dbg]     rec batch n=1 w=1256: prep 0.001s infer 0.049s ctc 0.002s
+[dbg]     rec batch n=1 w=841: prep 0.001s infer 0.036s ctc 0.001s
+[dbg]     rec batch n=1 w=1256: prep 0.000s infer 0.056s ctc 0.001s
+[dbg]     rec batch n=1 w=1281: prep 0.000s infer 0.028s ctc 0.000s
+[dbg]     rec batch n=1 w=1176: prep 0.000s infer 0.025s ctc 0.001s
+[dbg]     rec batch n=16 w=320: prep 0.000s infer 0.293s ctc 0.002s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.016s ctc 0.000s
+[dbg]     rec batch n=1 w=427: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=692: prep 0.000s infer 0.011s ctc 0.000s
+[dbg]     rec batch n=1 w=1092: prep 0.000s infer 0.017s ctc 0.000s
+[dbg]     rec batch n=1 w=1265: prep 0.000s infer 0.020s ctc 0.000s
+[dbg] rec (97 crops): 0.369s
+[dbg] layout: 0.000s
+RUN small 1 0.504771434000304 97
+[dbg] decode (804x505): 0.001s
+[dbg]   det resize: 0.004s
+[dbg]   det normalize: 0.001s
+[dbg]   det ORT infer: 0.116s
+[dbg] det total (1184x736): 0.121s
+[dbg] db_postprocess (97 boxes): 0.011s
+[dbg] crops (97): 0.003s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.036s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.049s ctc 0.003s
+[dbg]     rec batch n=1 w=418: prep 0.000s infer 0.016s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.056s ctc 0.002s
+[dbg]     rec batch n=1 w=612: prep 0.000s infer 0.017s ctc 0.000s
+[dbg]     rec batch n=1 w=406: prep 0.000s infer 0.015s ctc 0.000s
+[dbg]     rec batch n=2 w=347: prep 0.000s infer 0.022s ctc 0.001s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.074s ctc 0.004s
+[dbg]     rec batch n=5 w=320: prep 0.001s infer 0.078s ctc 0.001s
+[dbg]     rec batch n=1 w=598: prep 0.000s infer 0.014s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.015s ctc 0.000s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.024s ctc 0.000s
+[dbg]     rec batch n=1 w=544: prep 0.000s infer 0.029s ctc 0.001s
+[dbg]     rec batch n=1 w=505: prep 0.000s infer 0.015s ctc 0.001s
+[dbg]     rec batch n=1 w=516: prep 0.000s infer 0.011s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.026s ctc 0.000s
+[dbg]     rec batch n=1 w=1078: prep 0.000s infer 0.046s ctc 0.002s
+[dbg]     rec batch n=1 w=885: prep 0.000s infer 0.021s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.021s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.001s infer 0.043s ctc 0.001s
+[dbg]     rec batch n=8 w=320: prep 0.000s infer 0.170s ctc 0.004s
+[dbg]     rec batch n=1 w=1259: prep 0.001s infer 0.060s ctc 0.004s
+[dbg]     rec batch n=1 w=1180: prep 0.001s infer 0.045s ctc 0.000s
+[dbg]     rec batch n=11 w=320: prep 0.000s infer 0.187s ctc 0.002s
+[dbg]     rec batch n=1 w=1256: prep 0.001s infer 0.063s ctc 0.001s
+[dbg]     rec batch n=1 w=1262: prep 0.001s infer 0.080s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.022s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.037s ctc 0.001s
+[dbg]     rec batch n=1 w=1256: prep 0.000s infer 0.065s ctc 0.000s
+[dbg]     rec batch n=1 w=443: prep 0.000s infer 0.012s ctc 0.000s
+[dbg]     rec batch n=1 w=440: prep 0.000s infer 0.012s ctc 0.000s
+[dbg]     rec batch n=1 w=720: prep 0.000s infer 0.013s ctc 0.000s
+[dbg]     rec batch n=1 w=841: prep 0.000s infer 0.016s ctc 0.000s
+[dbg]     rec batch n=1 w=1172: prep 0.000s infer 0.025s ctc 0.001s
+[dbg]     rec batch n=1 w=1176: prep 0.000s infer 0.028s ctc 0.001s
+[dbg]     rec batch n=16 w=320: prep 0.000s infer 0.268s ctc 0.002s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.017s ctc 0.000s
+[dbg]     rec batch n=1 w=1281: prep 0.000s infer 0.024s ctc 0.000s
+[dbg]     rec batch n=1 w=427: prep 0.000s infer 0.007s ctc 0.000s
+[dbg]     rec batch n=1 w=692: prep 0.000s infer 0.011s ctc 0.000s
+[dbg]     rec batch n=1 w=1092: prep 0.000s infer 0.017s ctc 0.000s
+[dbg]     rec batch n=1 w=1265: prep 0.000s infer 0.020s ctc 0.000s
+[dbg] rec (97 crops): 0.345s
+[dbg] layout: 0.000s
+RUN small 2 0.4803459780000594 97
+[dbg] decode (804x505): 0.001s
+[dbg]   det resize: 0.003s
+[dbg]   det normalize: 0.001s
+[dbg]   det ORT infer: 0.116s
+[dbg] det total (1184x736): 0.120s
+[dbg] db_postprocess (97 boxes): 0.011s
+[dbg] crops (97): 0.002s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.023s ctc 0.000s
+[dbg]     rec batch n=1 w=406: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.059s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.061s ctc 0.001s
+[dbg]     rec batch n=1 w=598: prep 0.000s infer 0.036s ctc 0.000s
+[dbg]     rec batch n=4 w=320: prep 0.000s infer 0.072s ctc 0.004s
+[dbg]     rec batch n=1 w=418: prep 0.000s infer 0.018s ctc 0.001s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.018s ctc 0.000s
+[dbg]     rec batch n=5 w=320: prep 0.000s infer 0.087s ctc 0.001s
+[dbg]     rec batch n=1 w=516: prep 0.000s infer 0.010s ctc 0.000s
+[dbg]     rec batch n=2 w=347: prep 0.001s infer 0.033s ctc 0.001s
+[dbg]     rec batch n=2 w=320: prep 0.000s infer 0.022s ctc 0.001s
+[dbg]     rec batch n=1 w=612: prep 0.000s infer 0.033s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.026s ctc 0.000s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.059s ctc 0.001s
+[dbg]     rec batch n=1 w=544: prep 0.000s infer 0.029s ctc 0.000s
+[dbg]     rec batch n=1 w=505: prep 0.000s infer 0.032s ctc 0.000s
+[dbg]     rec batch n=1 w=1256: prep 0.000s infer 0.035s ctc 0.001s
+[dbg]     rec batch n=8 w=320: prep 0.000s infer 0.174s ctc 0.001s
+[dbg]     rec batch n=1 w=885: prep 0.001s infer 0.031s ctc 0.001s
+[dbg]     rec batch n=1 w=1078: prep 0.000s infer 0.074s ctc 0.001s
+[dbg]     rec batch n=1 w=1259: prep 0.001s infer 0.065s ctc 0.002s
+[dbg]     rec batch n=1 w=1074: prep 0.000s infer 0.059s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.029s ctc 0.000s
+[dbg]     rec batch n=1 w=443: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=1180: prep 0.000s infer 0.047s ctc 0.001s
+[dbg]     rec batch n=1 w=841: prep 0.000s infer 0.018s ctc 0.000s
+[dbg]     rec batch n=11 w=320: prep 0.000s infer 0.236s ctc 0.002s
+[dbg]     rec batch n=1 w=1262: prep 0.000s infer 0.060s ctc 0.001s
+[dbg]     rec batch n=1 w=1256: prep 0.000s infer 0.049s ctc 0.001s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.022s ctc 0.000s
+[dbg]     rec batch n=1 w=440: prep 0.000s infer 0.009s ctc 0.000s
+[dbg]     rec batch n=1 w=1176: prep 0.000s infer 0.042s ctc 0.000s
+[dbg]     rec batch n=1 w=720: prep 0.000s infer 0.016s ctc 0.000s
+[dbg]     rec batch n=16 w=320: prep 0.000s infer 0.300s ctc 0.002s
+[dbg]     rec batch n=1 w=1172: prep 0.000s infer 0.021s ctc 0.000s
+[dbg]     rec batch n=3 w=320: prep 0.000s infer 0.018s ctc 0.000s
+[dbg]     rec batch n=1 w=427: prep 0.000s infer 0.008s ctc 0.000s
+[dbg]     rec batch n=1 w=1281: prep 0.000s infer 0.022s ctc 0.000s
+[dbg]     rec batch n=1 w=692: prep 0.000s infer 0.011s ctc 0.000s
+[dbg]     rec batch n=1 w=1092: prep 0.000s infer 0.018s ctc 0.000s
+[dbg]     rec batch n=1 w=1265: prep 0.000s infer 0.020s ctc 0.000s
+[dbg] rec (97 crops): 0.380s
+[dbg] layout: 0.000s
+RUN small 3 0.5141227429999162 97

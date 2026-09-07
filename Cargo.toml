@@ -1,13 +1,13 @@
 [package]
 name = "faster_paddle"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 license = "MIT"
 description = "Fast CPU OCR (PaddleOCR PP-OCRv6 tiny/small/medium) with Python bindings, powered by ONNX Runtime."
 repository = "https://github.com/cnmoro/faster-paddle"
 # Bundle only the tiny + small models (the medium models are ~138 MB, over the
 # PyPI size limit, so they are downloaded on demand at runtime).
-include = ["src/**/*", "models/tiny/**/*", "models/small/**/*", "README.md", "pyproject.toml", "LICENSE"]
+include = ["/src/**/*", "/models/tiny/**/*", "/models/small/**/*", "/build.rs", "/README.md", "/PERFORMANCE_CHANGES.md", "/pyproject.toml", "/LICENSE"]
 
 [lib]
 name = "faster_paddle"
@@ -18,7 +18,7 @@ pyo3 = { version = "0.23", features = ["extension-module", "abi3-py38"] }
 # default features minus `tls-native` (which pulls openssl-sys and breaks
 # dependency-free cross-platform wheel builds); use rustls for the model
 # downloader instead.
-ort = { version = "2.0.0-rc.10", default-features = false, features = [
+ort = { version = "=2.0.0-rc.12", default-features = false, features = [
     "std",
     "ndarray",
     "tracing",
@@ -27,10 +27,10 @@ ort = { version = "2.0.0-rc.10", default-features = false, features = [
     "copy-dylibs",
     "api-24",
 ] }
-ndarray = "0.16"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp", "webp", "tiff", "gif"] }
 imageproc = { version = "0.25", default-features = false }
 rayon = "1"
+num_cpus = "1.17"
 base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

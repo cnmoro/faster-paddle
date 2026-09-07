@@ -1,0 +1,12 @@
+{"size": "tiny", "width": 64, "shape": [1, 8, 6906], "median_ms": 0.4590250000546803}
+{"size": "tiny", "width": 128, "shape": [1, 16, 6906], "median_ms": 0.7886844998665765}
+{"size": "tiny", "width": 192, "shape": [1, 24, 6906], "median_ms": 1.1453555000571214}
+{"size": "tiny", "width": 320, "shape": [1, 40, 6906], "median_ms": 1.8954164997921907}
+{"size": "tiny", "width": 640, "shape": [1, 80, 6906], "median_ms": 3.8738309999644116}
+{"size": "tiny", "profile_ops_us": [["Conv", 5449.0], ["Gelu", 2154.0], ["MatMul", 816.0], ["Add", 586.0], ["ReorderOutput", 510.0], ["ReorderInput", 397.0], ["Softmax", 204.0], ["Mul", 78.0], ["ReduceMean", 49.0], ["FusedMatMul", 38.0], ["BatchNormalization", 22.0], ["AveragePool", 12.0], ["HardSigmoid", 11.0], ["Squeeze", 8.0], ["Unsqueeze", 7.0]], "profile_top_nodes_us": [["MatMul.1_kernel_time", 816.0], ["Add.106_kernel_time", 517.0], ["p2o.pd_op.batch_norm_.1.0_nchwc_kernel_time", 402.0], ["Add.87_nchwc_kernel_time", 400.0], ["Add.97_nchwc_kernel_time", 399.0], ["Add.83_nchwc_kernel_time", 379.0], ["Add.93_nchwc_kernel_time", 369.0], ["Add.77_nchwc_kernel_time", 366.0]]}
+{"size": "small", "width": 64, "shape": [1, 8, 18710], "median_ms": 2.1952249999230844}
+{"size": "small", "width": 128, "shape": [1, 16, 18710], "median_ms": 3.9738895002301433}
+{"size": "small", "width": 192, "shape": [1, 24, 18710], "median_ms": 5.813435500158448}
+{"size": "small", "width": 320, "shape": [1, 40, 18710], "median_ms": 9.60453449988563}
+{"size": "small", "width": 640, "shape": [1, 80, 18710], "median_ms": 18.929834999880768}
+{"size": "small", "profile_ops_us": [["Conv", 31711.0], ["Gelu", 6042.0], ["FusedMatMul", 4142.0], ["Add", 1792.0], ["ReorderOutput", 1208.0], ["ReorderInput", 1201.0], ["Softmax", 623.0], ["MatMul", 540.0], ["Mul", 213.0], ["ReduceMean", 159.0], ["Concat", 149.0], ["Transpose", 93.0], ["MaxPool", 90.0], ["LayerNormalization", 74.0], ["QuickGelu", 61.0], ["SimplifiedLayerNormalization", 43.0], ["Squeeze", 37.0], ["Split", 35.0], ["Reshape", 30.0], ["SkipLayerNormalization", 29.0], ["Slice", 26.0], ["AveragePool", 25.0], ["Sub", 15.0], ["Shape", 9.0]], "profile_top_nodes_us": [["MatMul.12/MatmulTransposeFusion/_kernel_time", 4088.0], ["Add.143_nchwc_kernel_time", 2227.0], ["Add.153_nchwc_kernel_time", 2209.0], ["Add.139_nchwc_kernel_time", 2165.0], ["Add.149_nchwc_kernel_time", 2141.0], ["Add.208_kernel_time", 1446.0], ["p2o.pd_op.relu.3.0_nchwc_kernel_time", 1168.0], ["Add.73_nchwc_kernel_time", 1139.0]]}

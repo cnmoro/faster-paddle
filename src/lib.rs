@@ -6,6 +6,7 @@
 //! access are needed at runtime.
 
 mod cv;
+mod hardware;
 mod layout;
 mod ocr;
 mod preprocess;
@@ -24,15 +25,27 @@ mod glibc_compat {
         fn strtoull(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_ulonglong;
     }
     #[no_mangle]
-    pub unsafe extern "C" fn __isoc23_strtol(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_long {
+    pub unsafe extern "C" fn __isoc23_strtol(
+        s: *const c_char,
+        e: *mut *mut c_char,
+        b: c_int,
+    ) -> c_long {
         strtol(s, e, b)
     }
     #[no_mangle]
-    pub unsafe extern "C" fn __isoc23_strtoll(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_longlong {
+    pub unsafe extern "C" fn __isoc23_strtoll(
+        s: *const c_char,
+        e: *mut *mut c_char,
+        b: c_int,
+    ) -> c_longlong {
         strtoll(s, e, b)
     }
     #[no_mangle]
-    pub unsafe extern "C" fn __isoc23_strtoull(s: *const c_char, e: *mut *mut c_char, b: c_int) -> c_ulonglong {
+    pub unsafe extern "C" fn __isoc23_strtoull(
+        s: *const c_char,
+        e: *mut *mut c_char,
+        b: c_int,
+    ) -> c_ulonglong {
         strtoull(s, e, b)
     }
 
@@ -54,6 +67,7 @@ use base64::Engine as _;
 use ocr::{Engine, ImageRgb};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::pybacked::PyBackedBytes;
 use pyo3::types::{PyBytes, PyDict, PyTuple};
 use std::borrow::Cow;
 use std::sync::{Mutex, OnceLock};
@@ -116,7 +130,9 @@ fn resolve_model(size: &str) -> PyResult<ModelAssets> {
 /// Download (once, then cache) and return the medium det + rec ONNX bytes.
 fn medium_model_bytes() -> PyResult<(Vec<u8>, Vec<u8>)> {
     let cache = dirs::cache_dir()
-        .ok_or_else(|| PyRuntimeError::new_err("cannot determine a cache directory for medium models"))?
+        .ok_or_else(|| {
+            PyRuntimeError::new_err("cannot determine a cache directory for medium models")
+        })?
         .join("faster_paddle")
         .join(format!("v{VERSION}"))
         .join("medium");
@@ -134,12 +150,11 @@ fn fetch_cached(cache_dir: &std::path::Path, filename: &str, asset: &str) -> PyR
     }
     std::fs::create_dir_all(cache_dir)
         .map_err(|e| PyRuntimeError::new_err(format!("cannot create cache dir: {e}")))?;
-    let url = format!(
-        "https://github.com/cnmoro/faster-paddle/releases/download/v{VERSION}/{asset}"
-    );
-    let resp = ureq::get(&url)
-        .call()
-        .map_err(|e| PyRuntimeError::new_err(format!("failed to download medium model from {url}: {e}")))?;
+    let url =
+        format!("https://github.com/cnmoro/faster-paddle/releases/download/v{VERSION}/{asset}");
+    let resp = ureq::get(&url).call().map_err(|e| {
+        PyRuntimeError::new_err(format!("failed to download medium model from {url}: {e}"))
+    })?;
     let mut bytes = Vec::new();
     std::io::Read::read_to_end(&mut resp.into_reader(), &mut bytes)
         .map_err(|e| PyRuntimeError::new_err(format!("failed reading medium model: {e}")))?;
@@ -151,38 +166,10 @@ fn fetch_cached(cache_dir: &std::path::Path, filename: &str, asset: &str) -> PyR
     }
     // atomic-ish write via temp file
     let tmp = cache_dir.join(format!("{filename}.tmp"));
-    std::fs::write(&tmp, &bytes).map_err(|e| PyRuntimeError::new_err(format!("cannot write cache: {e}")))?;
+    std::fs::write(&tmp, &bytes)
+        .map_err(|e| PyRuntimeError::new_err(format!("cannot write cache: {e}")))?;
     let _ = std::fs::rename(&tmp, &path);
     Ok(bytes)
-}
-
-/// Number of physical CPU cores (best for compute-bound inference; SMT threads
-/// tend to slow it down). Falls back to logical parallelism off Linux.
-fn physical_cores() -> usize {
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(txt) = std::fs::read_to_string("/proc/cpuinfo") {
-            let mut seen = std::collections::HashSet::new();
-            let (mut phys, mut core) = (String::new(), String::new());
-            for line in txt.lines() {
-                if let Some(v) = line.strip_prefix("physical id") {
-                    phys = v.split(':').nth(1).unwrap_or("").trim().to_string();
-                } else if let Some(v) = line.strip_prefix("core id") {
-                    core = v.split(':').nth(1).unwrap_or("").trim().to_string();
-                } else if line.trim().is_empty() {
-                    if !phys.is_empty() && !core.is_empty() {
-                        seen.insert((phys.clone(), core.clone()));
-                    }
-                    phys.clear();
-                    core.clear();
-                }
-            }
-            if !seen.is_empty() {
-                return seen.len();
-            }
-        }
-    }
-    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8)
 }
 
 /// Decode encoded image bytes (jpeg/png/...) into an RGB buffer. The network
@@ -193,15 +180,21 @@ fn decode_rgb(bytes: &[u8]) -> Result<ImageRgb, String> {
     let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
     let rgb = img.into_rgb8(); // move (no copy) when already RGB8
     let (w, h) = (rgb.width() as usize, rgb.height() as usize);
-    Ok(ImageRgb { w, h, data: rgb.into_raw() })
+    Ok(ImageRgb {
+        w,
+        h,
+        data: rgb.into_raw(),
+    })
 }
 
 /// Encode an RGB image to PNG bytes. If the image is grayscale (all channels
 /// equal, e.g. after denoise/deskew/binarize) it is written as a smaller 8-bit
 /// grayscale PNG; otherwise as RGB.
-fn encode_png(img: &ImageRgb) -> Result<Vec<u8>, String> {
+fn encode_png(img: ImageRgb) -> Result<Vec<u8>, String> {
     let n = img.w * img.h;
-    let is_gray = (0..n).all(|i| img.data[i * 3] == img.data[i * 3 + 1] && img.data[i * 3 + 1] == img.data[i * 3 + 2]);
+    let is_gray = (0..n).all(|i| {
+        img.data[i * 3] == img.data[i * 3 + 1] && img.data[i * 3 + 1] == img.data[i * 3 + 2]
+    });
     let mut out = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut out);
     if is_gray {
@@ -212,7 +205,7 @@ fn encode_png(img: &ImageRgb) -> Result<Vec<u8>, String> {
             .write_to(&mut cursor, image::ImageFormat::Png)
             .map_err(|e| e.to_string())?;
     } else {
-        let buf = image::RgbImage::from_raw(img.w as u32, img.h as u32, img.data.clone())
+        let buf = image::RgbImage::from_raw(img.w as u32, img.h as u32, img.data)
             .ok_or("failed to build RGB image")?;
         image::DynamicImage::ImageRgb8(buf)
             .write_to(&mut cursor, image::ImageFormat::Png)
@@ -229,58 +222,112 @@ fn prepare_bytes(image: &[u8], opts: preprocess::PreOpts) -> Result<Vec<u8>, Str
     }
     let img = decode_rgb(image)?;
     let (processed, _transform) = preprocess::preprocess(img, &opts);
-    encode_png(&processed)
+    encode_png(processed)
 }
 
-fn new_engine(model_size: &str, threads: Option<usize>, rec_batch: Option<usize>, det_max_side: Option<i64>) -> PyResult<Engine> {
-    let t = threads.unwrap_or_else(physical_cores).max(1);
-    // The det model is one big conv graph over a ~1600px image: unlike the small
-    // rec batches it scales past the physical cores, so it gets the SMT threads
-    // too — but only when `threads` wasn't set explicitly (an explicit value is
-    // a CPU budget the user chose; honor it everywhere).
-    let det_t = std::env::var("OCR_DET_THREADS")
+fn env_usize(name: &str) -> Option<usize> {
+    std::env::var(name)
+        .ok()?
+        .parse::<usize>()
         .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| match threads {
-            Some(t) => t.max(1),
-            None => std::thread::available_parallelism().map(|n| n.get()).unwrap_or(t).max(t),
-        });
+        .filter(|&n| n > 0)
+}
+
+fn new_engine(
+    model_size: &str,
+    threads: Option<usize>,
+    rec_batch: Option<usize>,
+    det_max_side: Option<i64>,
+    det_min_side: Option<i64>,
+    rec_min_width: Option<usize>,
+) -> PyResult<Engine> {
+    if threads == Some(0) || rec_batch == Some(0) {
+        return Err(PyValueError::new_err(
+            "threads and rec_batch must be positive",
+        ));
+    }
+    if det_max_side.is_some_and(|v| v > 0 && v < 32) || det_min_side.is_some_and(|v| v < 0) {
+        return Err(PyValueError::new_err(
+            "det_max_side must be at least 32 (or <=0 for 4000); det_min_side must be nonnegative",
+        ));
+    }
+    if rec_min_width.is_some_and(|v| !(64..=3200).contains(&v)) {
+        return Err(PyValueError::new_err(
+            "rec_min_width must be between 64 and 3200",
+        ));
+    }
+    let t = threads
+        .or_else(|| env_usize("OCR_THREADS"))
+        .unwrap_or_else(hardware::physical_cores)
+        .max(1);
+    let det_t = env_usize("OCR_DET_THREADS").unwrap_or(t.min(8)).clamp(1, t);
     let rb = rec_batch.unwrap_or(ocr::DEFAULT_REC_BATCH);
     let det_max = det_max_side.unwrap_or(ocr::DEFAULT_DET_MAX_SIDE);
-    // Recognition session-pool size: run several rec sessions concurrently so the
-    // many small rec matmuls keep the cores busy. One single-threaded session per
-    // physical core benchmarks fastest (~25-35% over pooled multi-threaded
-    // sessions): rec batches are small, so cross-thread matmul splitting wastes
-    // more in sync than it gains. Capped at 8 to bound memory. Override with
-    // REC_POOL.
-    let pool = std::env::var("REC_POOL")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| t.clamp(1, 8));
+    let pool = env_usize("REC_POOL")
+        .unwrap_or(t.min(if model_size == "medium" { 8 } else { 32 }))
+        .clamp(1, t);
     let m = resolve_model(model_size)?;
-    Engine::from_memory(&m.det, &m.rec, m.dict, t, det_t, rb, m.box_thresh, pool, det_max)
-        .map_err(|e| PyRuntimeError::new_err(format!("failed to init OCR engine: {e}")))
+    let mut engine = Engine::from_memory(
+        &m.det,
+        &m.rec,
+        m.dict,
+        t,
+        det_t,
+        rb,
+        m.box_thresh,
+        pool,
+        det_max,
+    )
+    .map_err(|e| PyRuntimeError::new_err(format!("failed to init OCR engine: {e}")))?;
+    // Short-label validation supports smaller tensors for tiny/small. Medium
+    // retains the reference floor until it has equivalent coverage.
+    let width = rec_min_width
+        .or_else(|| env_usize("OCR_REC_MIN_WIDTH"))
+        .unwrap_or(match model_size {
+            "tiny" => 64,
+            "small" => 96,
+            _ => 320,
+        })
+        .clamp(64, 3200);
+    engine.set_input_limits(det_min_side, Some(width));
+    Ok(engine)
 }
 
 /// Plain-Rust OCR output (GIL-free), assembled into a Python dict afterwards.
-type RawResult = (String, String, Vec<(usize, [i32; 2], [i32; 2], String, f32)>);
+type RawResult = (
+    String,
+    String,
+    Vec<(usize, [i32; 2], [i32; 2], String, f32)>,
+);
 
-fn run_ocr(engine: &Mutex<Engine>, bytes: &[u8], opts: preprocess::PreOpts) -> Result<RawResult, String> {
+fn run_ocr(
+    engine: &Mutex<Engine>,
+    bytes: &[u8],
+    opts: preprocess::PreOpts,
+) -> Result<RawResult, String> {
     let dbg = std::env::var("OCR_DEBUG").is_ok();
     let t0 = std::time::Instant::now();
     let img = decode_rgb(bytes)?;
     if dbg {
-        eprintln!("[dbg] decode ({}x{}): {:.3}s", img.w, img.h, t0.elapsed().as_secs_f64());
+        eprintln!(
+            "[dbg] decode ({}x{}): {:.3}s",
+            img.w,
+            img.h,
+            t0.elapsed().as_secs_f64()
+        );
     }
     // Preprocessing may resize/rotate the image; `transform` maps detected boxes
     // back to the ORIGINAL image coordinates so returned bounds stay aligned.
-    let (img, transform) = if opts.any() {
-        preprocess::preprocess(img, &opts)
-    } else {
-        (img, preprocess::Transform::identity())
-    };
-    let mut eng = engine.lock().unwrap();
+    let workers = engine.lock().map_err(|e| e.to_string())?.workers.clone();
+    let (img, transform) = workers.install(|| preprocess::preprocess(img, &opts));
+    let mut eng = engine.lock().map_err(|e| e.to_string())?;
     let res = eng.run(&img).map_err(|e| e.to_string())?;
+    drop(eng);
+    Ok(finish_ocr(res, transform))
+}
+
+fn finish_ocr(res: Vec<ocr::OcrResult>, transform: preprocess::Transform) -> RawResult {
+    let dbg = std::env::var("OCR_DEBUG").is_ok();
     let tl = std::time::Instant::now();
     // Text/layout run in the (straightened, scaled) preprocessed space.
     let (text, bounds) = layout::extract_text_and_bounds(&res);
@@ -292,11 +339,61 @@ fn run_ocr(engine: &Mutex<Engine>, bytes: &[u8], opts: preprocess::PreOpts) -> R
     let items = bounds
         .into_iter()
         .map(|(i, b)| {
-            let mapped = transform.map_box([b.top_left[0], b.top_left[1], b.bottom_right[0], b.bottom_right[1]]);
-            (i, [mapped[0], mapped[1]], [mapped[2], mapped[3]], b.text, b.confidence)
+            let mapped = transform.map_box([
+                b.top_left[0],
+                b.top_left[1],
+                b.bottom_right[0],
+                b.bottom_right[1],
+            ]);
+            (
+                i,
+                [mapped[0], mapped[1]],
+                [mapped[2], mapped[3]],
+                b.text,
+                b.confidence,
+            )
         })
         .collect();
-    Ok((text, structured, items))
+    (text, structured, items)
+}
+
+/// Decode bounded windows in parallel, then share recognition work across pages.
+fn run_ocr_batch(
+    engine: &Mutex<Engine>,
+    images: &[PyBackedBytes],
+    opts: preprocess::PreOpts,
+    batch_size: usize,
+) -> Result<Vec<RawResult>, String> {
+    use rayon::prelude::*;
+    let workers = engine.lock().map_err(|e| e.to_string())?.workers.clone();
+    let mut output = Vec::with_capacity(images.len());
+    for chunk in images.chunks(batch_size) {
+        let prepared: Result<Vec<_>, String> = workers.install(|| {
+            chunk
+                .par_iter()
+                .enumerate()
+                .map(|(i, bytes)| {
+                    let img = decode_rgb(bytes)
+                        .map_err(|e| format!("image {}: {e}", output.len() + i))?;
+                    Ok(preprocess::preprocess(img, &opts))
+                })
+                .collect()
+        });
+        let (imgs, transforms): (Vec<_>, Vec<_>) = prepared?.into_iter().unzip();
+        let results = engine
+            .lock()
+            .map_err(|e| e.to_string())?
+            .run_many(&imgs)
+            .map_err(|e| e.to_string())?;
+        output.extend(workers.install(|| {
+            results
+                .into_par_iter()
+                .zip(transforms)
+                .map(|(res, tr)| finish_ocr(res, tr))
+                .collect::<Vec<_>>()
+        }));
+    }
+    Ok(output)
 }
 
 fn build_dict<'py>(py: Python<'py>, raw: RawResult) -> PyResult<Bound<'py, PyDict>> {
@@ -332,23 +429,86 @@ impl OcrEngine {
     /// Args:
     ///     model_size: "tiny" (default, bundled), "small" (bundled), or "medium"
     ///         (downloaded once and cached on first use).
-    ///     threads: ONNX Runtime intra-op threads. Defaults to physical cores
-    ///         for recognition and all logical cores for detection; an explicit
-    ///         value is used for both (treat it as a CPU budget).
-    ///     rec_batch: recognition batch size (default 4).
-    ///     det_max_side: cap on the detector's longer side (default 1600). Large
-    ///         images are downscaled to this for detection only (recognition still
-    ///         crops from full resolution) — much faster with negligible quality
-    ///         loss. Raise toward 4000 for microscopic text; it never upscales.
+    ///     threads: total CPU budget; defaults to available physical cores,
+    ///         respecting affinity and container limits.
+    ///     rec_batch: actual recognition batch cap (default 1).
+    ///     det_max_side: detector longer-side cap (default 1600).
+    ///     det_min_side: detector minimum short side (default 736; 0 disables
+    ///         minimum-side upscaling, with multiple-of-32 rounding retained).
+    ///     rec_min_width: padding floor (tiny=64, small=96, medium=320).
+    ///         Use 320 for reference padding. Changes can affect recognition.
     #[new]
-    #[pyo3(signature = (model_size="tiny", threads=None, rec_batch=None, det_max_side=None))]
-    fn new(py: Python<'_>, model_size: &str, threads: Option<usize>, rec_batch: Option<usize>, det_max_side: Option<i64>) -> PyResult<Self> {
-        // medium may download large files; release the GIL during construction.
+    #[pyo3(signature = (model_size="tiny", threads=None, rec_batch=None, det_max_side=None, *, det_min_side=None, rec_min_width=None))]
+    fn new(
+        py: Python<'_>,
+        model_size: &str,
+        threads: Option<usize>,
+        rec_batch: Option<usize>,
+        det_max_side: Option<i64>,
+        det_min_side: Option<i64>,
+        rec_min_width: Option<usize>,
+    ) -> PyResult<Self> {
+        // Model construction and downloads run without holding the GIL.
         let size = model_size.to_string();
-        let engine = py.allow_threads(|| new_engine(&size, threads, rec_batch, det_max_side))?;
+        let engine = py.allow_threads(|| {
+            new_engine(
+                &size,
+                threads,
+                rec_batch,
+                det_max_side,
+                det_min_side,
+                rec_min_width,
+            )
+        })?;
         Ok(Self {
             inner: Mutex::new(engine),
         })
+    }
+
+    /// OCR several encoded images, preserving order. A bounded window shares
+    /// recognition workers across pages; detection retains each page's shape.
+    #[pyo3(signature = (images, *, batch_size=4, resize=false, denoise=false, deskew=false, binarize=false))]
+    fn ocr_batch<'py>(
+        &self,
+        py: Python<'py>,
+        images: Vec<PyBackedBytes>,
+        batch_size: usize,
+        resize: bool,
+        denoise: bool,
+        deskew: bool,
+        binarize: bool,
+    ) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        if batch_size == 0 {
+            return Err(PyValueError::new_err("batch_size must be positive"));
+        }
+        let opts = preprocess::PreOpts {
+            resize,
+            denoise,
+            deskew,
+            binarize,
+        };
+        let raw = py
+            .allow_threads(|| run_ocr_batch(&self.inner, &images, opts, batch_size))
+            .map_err(PyRuntimeError::new_err)?;
+        raw.into_iter().map(|r| build_dict(py, r)).collect()
+    }
+
+    /// Resolved CPU and input-shape settings for diagnostics and reproducibility.
+    #[getter]
+    fn config<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let settings = py
+            .allow_threads(|| {
+                self.inner
+                    .lock()
+                    .map(|e| e.settings())
+                    .map_err(|e| e.to_string())
+            })
+            .map_err(PyRuntimeError::new_err)?;
+        let out = PyDict::new(py);
+        for (key, value) in settings {
+            out.set_item(key, value)?;
+        }
+        Ok(out)
     }
 
     /// Run OCR on raw encoded image bytes (jpeg/png/webp/bmp/tiff/gif).
@@ -366,7 +526,12 @@ impl OcrEngine {
         deskew: bool,
         binarize: bool,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
+        let opts = preprocess::PreOpts {
+            resize,
+            denoise,
+            deskew,
+            binarize,
+        };
         let raw = py
             .allow_threads(|| run_ocr(&self.inner, image, opts))
             .map_err(PyRuntimeError::new_err)?;
@@ -385,10 +550,17 @@ impl OcrEngine {
         deskew: bool,
         binarize: bool,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(image_base64.as_bytes())
+        let bytes = py
+            .allow_threads(|| {
+                base64::engine::general_purpose::STANDARD.decode(image_base64.as_bytes())
+            })
             .map_err(|e| PyValueError::new_err(format!("invalid base64: {e}")))?;
-        let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
+        let opts = preprocess::PreOpts {
+            resize,
+            denoise,
+            deskew,
+            binarize,
+        };
         let raw = py
             .allow_threads(|| run_ocr(&self.inner, &bytes, opts))
             .map_err(PyRuntimeError::new_err)?;
@@ -409,9 +581,22 @@ impl OcrEngine {
         deskew: bool,
         binarize: bool,
     ) -> PyResult<Bound<'py, PyBytes>> {
-        let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
+        let opts = preprocess::PreOpts {
+            resize,
+            denoise,
+            deskew,
+            binarize,
+        };
         let out = py
-            .allow_threads(|| prepare_bytes(image, opts))
+            .allow_threads(|| {
+                let workers = self
+                    .inner
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .workers
+                    .clone();
+                workers.install(|| prepare_bytes(image, opts))
+            })
             .map_err(PyRuntimeError::new_err)?;
         Ok(PyBytes::new(py, &out))
     }
@@ -419,13 +604,51 @@ impl OcrEngine {
 
 // ---- module-level convenience using a lazily-built default engine ----
 static DEFAULT_ENGINE: OnceLock<Mutex<Engine>> = OnceLock::new();
+static DEFAULT_INIT: Mutex<()> = Mutex::new(());
 
 fn default_engine() -> PyResult<&'static Mutex<Engine>> {
     if let Some(e) = DEFAULT_ENGINE.get() {
         return Ok(e);
     }
-    let eng = new_engine("tiny", None, None, None)?;
+    let _init = DEFAULT_INIT
+        .lock()
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+    if let Some(e) = DEFAULT_ENGINE.get() {
+        return Ok(e);
+    }
+    let eng = new_engine("tiny", None, None, None, None, None)?;
     Ok(DEFAULT_ENGINE.get_or_init(|| Mutex::new(eng)))
+}
+
+/// OCR multiple images with the shared default engine.
+#[pyfunction]
+#[pyo3(name = "ocr_batch", signature = (images, *, batch_size=4, resize=false, denoise=false, deskew=false, binarize=false))]
+fn py_ocr_batch<'py>(
+    py: Python<'py>,
+    images: Vec<PyBackedBytes>,
+    batch_size: usize,
+    resize: bool,
+    denoise: bool,
+    deskew: bool,
+    binarize: bool,
+) -> PyResult<Vec<Bound<'py, PyDict>>> {
+    if batch_size == 0 {
+        return Err(PyValueError::new_err("batch_size must be positive"));
+    }
+    if images.is_empty() {
+        return Ok(Vec::new());
+    }
+    let opts = preprocess::PreOpts {
+        resize,
+        denoise,
+        deskew,
+        binarize,
+    };
+    let engine = py.allow_threads(default_engine)?;
+    let raw = py
+        .allow_threads(|| run_ocr_batch(engine, &images, opts, batch_size))
+        .map_err(PyRuntimeError::new_err)?;
+    raw.into_iter().map(|r| build_dict(py, r)).collect()
 }
 
 /// OCR raw encoded image bytes using a shared default engine.
@@ -439,9 +662,16 @@ fn py_ocr<'py>(
     deskew: bool,
     binarize: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
-    let engine = default_engine()?;
-    let raw = py.allow_threads(|| run_ocr(engine, image, opts)).map_err(PyRuntimeError::new_err)?;
+    let opts = preprocess::PreOpts {
+        resize,
+        denoise,
+        deskew,
+        binarize,
+    };
+    let engine = py.allow_threads(default_engine)?;
+    let raw = py
+        .allow_threads(|| run_ocr(engine, image, opts))
+        .map_err(PyRuntimeError::new_err)?;
     build_dict(py, raw)
 }
 
@@ -456,12 +686,19 @@ fn py_ocr_base64<'py>(
     deskew: bool,
     binarize: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(image_base64.as_bytes())
+    let bytes = py
+        .allow_threads(|| base64::engine::general_purpose::STANDARD.decode(image_base64.as_bytes()))
         .map_err(|e| PyValueError::new_err(format!("invalid base64: {e}")))?;
-    let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
-    let engine = default_engine()?;
-    let raw = py.allow_threads(|| run_ocr(engine, &bytes, opts)).map_err(PyRuntimeError::new_err)?;
+    let opts = preprocess::PreOpts {
+        resize,
+        denoise,
+        deskew,
+        binarize,
+    };
+    let engine = py.allow_threads(default_engine)?;
+    let raw = py
+        .allow_threads(|| run_ocr(engine, &bytes, opts))
+        .map_err(PyRuntimeError::new_err)?;
     build_dict(py, raw)
 }
 
@@ -477,7 +714,12 @@ fn py_prepare<'py>(
     deskew: bool,
     binarize: bool,
 ) -> PyResult<Bound<'py, PyBytes>> {
-    let opts = preprocess::PreOpts { resize, denoise, deskew, binarize };
+    let opts = preprocess::PreOpts {
+        resize,
+        denoise,
+        deskew,
+        binarize,
+    };
     let out = py
         .allow_threads(|| prepare_bytes(image, opts))
         .map_err(PyRuntimeError::new_err)?;
@@ -489,6 +731,7 @@ fn faster_paddle(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<OcrEngine>()?;
     m.add_function(wrap_pyfunction!(py_ocr, m)?)?;
+    m.add_function(wrap_pyfunction!(py_ocr_batch, m)?)?;
     m.add_function(wrap_pyfunction!(py_ocr_base64, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare, m)?)?;
     Ok(())
