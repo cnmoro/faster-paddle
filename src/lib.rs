@@ -729,6 +729,7 @@ fn py_prepare<'py>(
 #[pymodule]
 fn faster_paddle(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add("__runtime_build__", ort::info())?;
     m.add_class::<OcrEngine>()?;
     m.add_function(wrap_pyfunction!(py_ocr, m)?)?;
     m.add_function(wrap_pyfunction!(py_ocr_batch, m)?)?;

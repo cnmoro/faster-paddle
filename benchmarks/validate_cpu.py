@@ -80,6 +80,8 @@ def main():
                 result = engine.ocr(image)
                 times.append((time.perf_counter() - t) * 1000)
             print(json.dumps(dict(model=model, case=name, init_ms=init_ms,
+                package_version=faster_paddle.__version__,
+                runtime_build=getattr(faster_paddle, "__runtime_build__", None),
                 config=getattr(engine, "config", kw), median_ms=statistics.median(times), times_ms=times,
                 token_recall=token_recall(expected, result["text"]), result=result)), flush=True)
         del engine

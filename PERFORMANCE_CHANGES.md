@@ -6,6 +6,42 @@ was introduced.
 For subsequent runtime, kernel, and memory-bandwidth investigation, see
 [the optimization follow-up](PERFORMANCE_NEXT.md).
 
+## v1.0.4 native runtime upgrade
+
+v1.0.4 upgrades the production `ort` and `ort-sys` dependencies from rc.12 to
+rc.13, replacing the linked ONNX Runtime 1.24.2 with **1.28.0**. This is the
+runtime distributed by the latest released Rust bindings. The earlier 1.29.0
+Python graph probes were exploratory; their timings are not substituted for
+measurements of this production upgrade. v1.0.3 contained the investigation
+only and did not change inference performance.
+
+`faster_paddle.__runtime_build__` now reports the native runtime's own build
+information. An integration test verifies 1.28.0 is actually linked. CI now
+installs and tests each Linux x86-64/ARM64, Windows, and macOS ARM64 wheel before
+upload, and all platforms must pass before publication.
+
+Local validation: 23 Rust tests and 16 installed-wheel integration tests passed.
+The published v1.0.3 wheel and locally built v1.0.4 wheel were compared on the
+same 11 inputs for both tiny and small, using two CPU cores, low priority,
+`OCR_THREADS=2`, one warmup and three timed full OCR calls per case. Model
+weights, resolved configuration, ordered text and box coordinates matched in
+all 22 cases; labeled token recall was unchanged. Confidence values are not
+required to be bit-identical. The corpus is small and primarily Latin-script.
+
+| Full OCR case | v1.0.3 median | v1.0.4 median | Reduction |
+|---|---:|---:|---:|
+| tiny screenshot | 167.90 ms | 147.52 ms | 12.1% |
+| small screenshot | 700.19 ms | 613.59 ms | 12.4% |
+| tiny large scan | 257.38 ms | 200.10 ms | 22.3% |
+| small large scan | 738.25 ms | 664.59 ms | 10.0% |
+
+These are bounded local measurements, not universal speed guarantees or the
+earlier full-CPU benchmark configuration. Raw results include all inputs,
+timings, recognized output, package version and candidate runtime build:
+[v1.0.3](benchmarks/results/upgrade-1.0.3.jsonl),
+[v1.0.4](benchmarks/results/upgrade-1.0.4.jsonl).
+The remaining sections describe the v1.0.2 optimizations and historical probes.
+
 **Resolved defaults**
 
 | Setting | Automatic behavior |

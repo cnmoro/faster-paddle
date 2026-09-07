@@ -1,5 +1,10 @@
 CPU optimization follow-up to v1.0.2 (`9dda394`), 2026-09-06.
 
+**Update:** the runtime upgrade is implemented in v1.0.4 using the released
+Rust bindings' ONNX Runtime 1.28.0. See [production validation](PERFORMANCE_CHANGES.md#v104-native-runtime-upgrade).
+The investigation below is retained as historical evidence; its 1.29 Python
+probes are distinct from the actual packaged runtime upgrade.
+
 The strongest measured next option is a newer ONNX Runtime, followed by
 convolution-focused quantization and further operator/layout fusion. The current
 pipeline is **not proven DRAM-bandwidth-bound**. Optimize time per image; reaching

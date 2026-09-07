@@ -37,9 +37,6 @@ jobs:
 
   linux:
     runs-on: ${{ matrix.runner }}
-    # aarch64 is built best-effort; its failure must not block publishing the
-    # other platforms (the x86_64 wheel is what most servers need).
-    continue-on-error: ${{ matrix.target == 'aarch64' }}
     strategy:
       fail-fast: false
       matrix:
@@ -63,7 +60,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
+          args: --release --locked --out dist
           sccache: "true"
           manylinux: ${{ matrix.manylinux }}
           # Tell ort-sys to skip its dynamic libstdc++ link; build.rs links the
@@ -71,6 +68,14 @@ jobs:
           # host's libstdc++.so.6 version (manylinux GCC 11 references
           # GLIBCXX_3.4.29 symbols missing on older systems).
           before-script-linux: export ORT_CXX_STDLIB=
+      - name: Test installed wheel and linked runtime
+        shell: bash
+        env:
+          OCR_THREADS: "2"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          python -m pip install pytest pillow dist/*.whl
+          python -m pytest tests -q
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-linux-${{ matrix.target }}
@@ -91,8 +96,16 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
+          args: --release --locked --out dist
           sccache: "true"
+      - name: Test installed wheel and linked runtime
+        shell: bash
+        env:
+          OCR_THREADS: "2"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          python -m pip install pytest pillow dist/*.whl
+          python -m pytest tests -q
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-windows-${{ matrix.target }}
@@ -114,8 +127,16 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
+          args: --release --locked --out dist
           sccache: "true"
+      - name: Test installed wheel and linked runtime
+        shell: bash
+        env:
+          OCR_THREADS: "2"
+          PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+        run: |
+          python -m pip install pytest pillow dist/*.whl
+          python -m pytest tests -q
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-macos-${{ matrix.target }}

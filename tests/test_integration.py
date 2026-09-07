@@ -22,6 +22,11 @@ def _small():
         return f.read()
 
 
+def test_bundled_runtime():
+    # Verify the linked native runtime, not just the Rust crate/package version.
+    assert "1.28.0" in faster_paddle.__runtime_build__
+
+
 def _big():
     """An image larger than the 2100x3000 OCR canvas, so resize=True triggers."""
     im = Image.open(FIXTURE).convert("RGB").resize((2400, 3200))

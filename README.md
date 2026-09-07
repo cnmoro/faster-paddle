@@ -29,6 +29,11 @@ See [performance results and tradeoffs](PERFORMANCE_CHANGES.md) and the
 pip install faster-paddle
 ```
 
+**v1.0.4 upgrades the bundled native ONNX Runtime from 1.24.2 to 1.28.0.**
+This runtime is linked into the Rust extension; no Python `onnxruntime` package
+is required. Inspect it with `faster_paddle.__runtime_build__`.
+See the [full OCR upgrade measurements](PERFORMANCE_CHANGES.md#v104-native-runtime-upgrade).
+
 ## Usage
 
 ```python
