@@ -1,13 +1,13 @@
 [package]
 name = "faster_paddle"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 license = "MIT"
 description = "Fast CPU OCR (PaddleOCR PP-OCRv6 tiny/small/medium) with Python bindings, powered by ONNX Runtime."
 repository = "https://github.com/cnmoro/faster-paddle"
 # Bundle only the tiny + small models (the medium models are ~138 MB, over the
 # PyPI size limit, so they are downloaded on demand at runtime).
-include = ["/src/**/*", "/models/tiny/**/*", "/models/small/**/*", "/build.rs", "/README.md", "/PERFORMANCE_CHANGES.md", "/pyproject.toml", "/LICENSE"]
+include = ["/src/**/*", "/models/tiny/**/*", "/models/small/**/*", "/build.rs", "/README.md", "/PERFORMANCE_CHANGES.md", "/PERFORMANCE_REVIEW.md", "/PERFORMANCE_NEXT.md", "/benchmarks/**/*.py", "/benchmarks/results/*.jsonl", "/benchmarks/results/*.log", "/pyproject.toml", "/LICENSE"]
 
 [lib]
 name = "faster_paddle"

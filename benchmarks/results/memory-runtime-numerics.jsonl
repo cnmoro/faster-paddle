@@ -1,0 +1,6 @@
+{"case": "small-det-1184", "shape": [1, 1, 736, 1184], "reference_runtime": "1.24.2", "candidate_runtime": "1.29.0", "max_abs_difference": 0.0, "threshold_0_2_mask_mismatches": 0}
+{"case": "small-rec-320", "shape": [1, 40, 18710], "reference_runtime": "1.24.2", "candidate_runtime": "1.29.0", "max_abs_difference": 2.9802322387695312e-06, "timestep_argmax_matches": true, "max_winning_probability_difference": 2.9802322387695312e-06}
+{"case": "small-rec-96", "shape": [1, 12, 18710], "reference_runtime": "1.24.2", "candidate_runtime": "1.29.0", "max_abs_difference": 1.3709068298339844e-06, "timestep_argmax_matches": true, "max_winning_probability_difference": 1.3709068298339844e-06}
+{"case": "tiny-det-1184", "shape": [1, 1, 736, 1184], "reference_runtime": "1.24.2", "candidate_runtime": "1.29.0", "max_abs_difference": 0.0, "threshold_0_2_mask_mismatches": 0}
+{"case": "tiny-rec-320", "shape": [1, 40, 6906], "reference_runtime": "1.24.2", "candidate_runtime": "1.29.0", "max_abs_difference": 0.0, "timestep_argmax_matches": true, "max_winning_probability_difference": 0.0}
+{"case": "tiny-rec-64", "shape": [1, 8, 6906], "reference_runtime": "1.24.2", "candidate_runtime": "1.29.0", "max_abs_difference": 0.0, "timestep_argmax_matches": true, "max_winning_probability_difference": 0.0}

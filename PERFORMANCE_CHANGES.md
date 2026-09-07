@@ -3,6 +3,9 @@ implemented. The default remains CPU-only FP32, with the original model weights
 and character dictionaries. No GPU execution provider or driver configuration
 was introduced.
 
+For subsequent runtime, kernel, and memory-bandwidth investigation, see
+[the optimization follow-up](PERFORMANCE_NEXT.md).
+
 **Resolved defaults**
 
 | Setting | Automatic behavior |
